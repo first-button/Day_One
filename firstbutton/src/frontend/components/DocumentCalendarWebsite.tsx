@@ -56,7 +56,7 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
   const handleLogin = async () => {
     try {
       // 백엔드에서 구글 로그인 URL을 받아옵니다.
-      const response = await fetch("http://localhost:8000/api/auth/login");
+      const response = await fetch("/api/auth/login");
       const data = await response.json();
       
       // 구글 로그인 페이지로 이동 (리다이렉트)
@@ -116,7 +116,7 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
         formData.append("uploaded_file", item.file);
         formData.append("event_color", item.color);
 
-        const response = await fetch("http://localhost:8000/api/schedule/upload", {
+        const response = await fetch("/api/schedule/upload", {
           method: "POST",
           body: formData,
           credentials: "include",

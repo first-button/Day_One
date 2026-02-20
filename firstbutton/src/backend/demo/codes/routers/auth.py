@@ -17,6 +17,7 @@ router = APIRouter(prefix="/api/auth", tags=["Auth"])
 
 CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 
 DB_CONFIG = {
     "host": os.getenv("DB_HOST"),
@@ -43,7 +44,7 @@ SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.google
 def login():
     #사용자의 인증 과정을 관리하는 가이드
     flow = Flow.from_client_config(CLIENT_CONFIG, scopes=SCOPES)
-    flow.redirect_uri = "http://localhost:8000/api/auth/callback" #로그인 완료 후 돌아올 주소 설정
+    flow.redirect_uri = f"{BASE_URL}/api/auth/callback" #로그인 완료 후 돌아올 주소 설정
     
     # access_type='offline'을 설정해야 refresh_token을 받을 수 있습니다.
     #구글의 진짜 로그인 페이지 URL
@@ -61,7 +62,7 @@ async def callback(request: Request):
     code = request.query_params.get("code")
     
     flow = Flow.from_client_config(CLIENT_CONFIG, scopes=SCOPES)
-    flow.redirect_uri = "http://localhost:8000/api/auth/callback"
+    flow.redirect_uri = f"{BASE_URL}/api/auth/callback"
     
     flow.fetch_token(code=code)
     credentials = flow.credentials
@@ -110,7 +111,7 @@ async def callback(request: Request):
             conn.close()
 
     # 5. 응답 처리 (쿠키에 이메일 저장하여 누구인지 식별)
-    response = RedirectResponse(url="http://localhost:8000/")
+    response = RedirectResponse(url=f"{BASE_URL}/")
     response.set_cookie(key="user_email", value=user_email, httponly=False)
     
     return response

@@ -1,10 +1,10 @@
+import config  # Secrets Manager 로드 (다른 모듈보다 먼저 import)
 import os
 from fastapi import FastAPI, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from routers import schedule # 우리가 만든 라우터 가져오기
-from fastapi.middleware.cors import CORSMiddleware # [추가] CORS 대응
-from routers import schedule, auth # [수정] auth 라우터 추가
+from fastapi.middleware.cors import CORSMiddleware
+from routers import schedule, auth
 
 app = FastAPI(title="첫단추 API")
 

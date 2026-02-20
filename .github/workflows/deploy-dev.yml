@@ -1,0 +1,78 @@
+name: Deploy to EC2 (develop)
+
+on:
+  push:
+    branches: ["develop"]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 084375578827.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend
+        run: |
+          docker build -f Dockerfile.backend -t ${{ env.ECR_REGISTRY }}/day-one-dev/backend:latest .
+          docker push ${{ env.ECR_REGISTRY }}/day-one-dev/backend:latest
+
+      - name: Build and push frontend
+        run: |
+          docker build -f Dockerfile.frontend -t ${{ env.ECR_REGISTRY }}/day-one-dev/frontend:latest .
+          docker push ${{ env.ECR_REGISTRY }}/day-one-dev/frontend:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            APP_DIR="${{ secrets.EC2_APP_DIR }}"
+
+            # First time: init repo
+            if [ ! -d "$APP_DIR/.git" ]; then
+              mkdir -p "$APP_DIR"
+              cd "$APP_DIR"
+              git init
+              git remote add origin https://github.com/first-button/Day_One.git
+              git fetch origin develop
+              git checkout -b develop origin/develop
+            fi
+
+            cd "$APP_DIR"
+            git fetch origin develop
+            git reset --hard origin/develop
+
+            # Login to ECR
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 084375578827.dkr.ecr.us-east-1.amazonaws.com
+
+            # Pull and deploy
+            ECR_REGISTRY=084375578827.dkr.ecr.us-east-1.amazonaws.com
+            docker compose pull backend frontend
+            docker compose up -d
+
+            # Verify
+            sleep 10
+            docker compose ps
+
+            echo "DEPLOY OK: $(git rev-parse --short HEAD)"
