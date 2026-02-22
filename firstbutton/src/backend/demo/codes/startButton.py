@@ -21,7 +21,7 @@ model = genai.GenerativeModel('gemini-flash-latest')
 PROMPT_TEMPLATE = "Summarize all the academic schedules from this {file} file and organize them into a JSON format in English. \
                 However, make sure to strictly comply with the following requirements: \
                 1. Things to be excluded: TA office hour, professor office hour, assignment release date. \
-                2. Things to be included: midterm, final exam, project deadline, assignment submission deadline, no class, holiday, semester break.\
+                2. Things to be included: quiz, midterm, final exam, any kind of project deadlines, assignment submission deadlines, no class, holiday, reading day, any kind of breaks.\
                 3. Do not contain any other information except the schedule information.\
                 4. Finally, the keys of JSON object must be: summary, location, description, colorId, start, end.\
                 5. **The start key and end key must be a dictionary object with only the 'date' key (YYYY-MM-DD format). Do NOT include 'timeZone' or 'dateTime'. The 'end' date must be one day after the 'start' date to ensure it is displayed as an all-day event.** \
@@ -79,7 +79,27 @@ def google_calendar(events_list, credentials):
         for event_data in events_list:
             try:
                 if is_common_event(event_data):
-                    event_data["id"] = make_common_event_id(event_data)
+                    dedupe_key = make_common_event_id(event_data)  # (이제는 'id'가 아니라 'key'로 사용)
+                    event_data.setdefault("extendedProperties", {}) \
+                              .setdefault("private", {})["dedupeKey"] = dedupe_key
+
+                    # all-day event: date만 있으니 timeMin/timeMax는 00:00:00Z 기준으로 검색
+                    time_min = f"{event_data['start']['date']}T00:00:00Z"
+                    time_max = f"{event_data['end']['date']}T00:00:00Z"
+
+                    found = service.events().list(
+                        calendarId="primary",
+                        privateExtendedProperty=f"dedupeKey={dedupe_key}",
+                        showDeleted=False,
+                        singleEvents=True,
+                        timeMin=time_min,
+                        timeMax=time_max,
+                        maxResults=1
+                    ).execute()
+
+                    if found.get("items"):
+                        print(f"중복 일정(이미 존재) 건너뜀: {event_data.get('summary')}")
+                        continue
                 
                 service.events().insert(calendarId="primary", body=event_data).execute()
                 print(f"✅ 일정 등록 완료: {event_data.get('summary')}")
@@ -101,8 +121,8 @@ def is_common_event(event_data):
 
 def make_common_event_id(event_data):
     """공통 일정에 대한 고유 해시 ID 생성 (중복 등록 방지)"""
-    start = event_data["start"]["date"][4:].replace("-", "")
-    end = event_data["end"]["date"][4:].replace("-", "")
+    start = event_data["start"]["date"].replace("-", "")
+    end = event_data["end"]["date"].replace("-", "")
     summary_title = (event_data.get("summary", "").lower()).replace(" ", "")
     raw_id = f"{summary_title}{start}{end}"
     return hashlib.md5(raw_id.encode()).hexdigest()
