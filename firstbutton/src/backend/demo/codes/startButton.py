@@ -75,7 +75,42 @@ def google_calendar(events_list, credentials):
             
     try:
         service = build('calendar', 'v3', credentials=credentials)
-        
+        common_events = [e for e in events_list if is_common_event(e)]
+
+        # 2) 공통 이벤트가 있으면, 해당 기간 내 기존 이벤트를 "한 번에" 조회해서 dedupeKey set 만들기
+        existing_keys = set()
+        if common_events:
+            min_start = min(e["start"]["date"] for e in common_events)  # YYYY-MM-DD라 문자열 min/max 가능
+            max_end = max(e["end"]["date"] for e in common_events)
+
+            time_min = f"{min_start}T00:00:00Z"
+            time_max = f"{max_end}T00:00:00Z"
+
+            page_token = None
+            while True:
+                resp = service.events().list(
+                    calendarId="primary",
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    showDeleted=False,
+                    singleEvents=True,
+                    maxResults=250,
+                    pageToken=page_token
+                ).execute()
+
+                for item in resp.get("items", []):
+                    key = (
+                        item.get("extendedProperties", {})
+                            .get("private", {})
+                            .get("dedupeKey")
+                    )
+                    if key:
+                        existing_keys.add(key)
+
+                page_token = resp.get("nextPageToken")
+                if not page_token:
+                    break
+                
         for event_data in events_list:
             try:
                 if is_common_event(event_data):
@@ -83,23 +118,11 @@ def google_calendar(events_list, credentials):
                     event_data.setdefault("extendedProperties", {}) \
                               .setdefault("private", {})["dedupeKey"] = dedupe_key
 
-                    # all-day event: date만 있으니 timeMin/timeMax는 00:00:00Z 기준으로 검색
-                    time_min = f"{event_data['start']['date']}T00:00:00Z"
-                    time_max = f"{event_data['end']['date']}T00:00:00Z"
-
-                    found = service.events().list(
-                        calendarId="primary",
-                        privateExtendedProperty=f"dedupeKey={dedupe_key}",
-                        showDeleted=False,
-                        singleEvents=True,
-                        timeMin=time_min,
-                        timeMax=time_max,
-                        maxResults=1
-                    ).execute()
-
-                    if found.get("items"):
+                    
+                    if dedupe_key in existing_keys:
                         print(f"중복 일정(이미 존재) 건너뜀: {event_data.get('summary')}")
                         continue
+                    existing_keys.add(dedupe_key)
                 
                 service.events().insert(calendarId="primary", body=event_data).execute()
                 print(f"✅ 일정 등록 완료: {event_data.get('summary')}")
