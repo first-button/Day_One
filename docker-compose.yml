@@ -21,6 +21,10 @@ services:
     image: ${ECR_REGISTRY}/day-one-dev/backend:latest
     environment:
       - DB_HOST=mysql
+      - DB_USER=${MYSQL_USER}
+      - DB_PASSWORD=${MYSQL_PASSWORD}
+      - DB_NAME=${MYSQL_DATABASE}
+      - DB_PORT=3306
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - BASE_URL=${BASE_URL:-http://localhost:8000}
     depends_on:
