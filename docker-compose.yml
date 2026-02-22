@@ -25,6 +25,9 @@ services:
       - DB_PASSWORD=${MYSQL_PASSWORD}
       - DB_NAME=${MYSQL_DATABASE}
       - DB_PORT=3306
+      - GOOGLE_GEMINI_API=${GOOGLE_GEMINI_API}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
       - AWS_REGION=${AWS_REGION:-us-east-1}
       - BASE_URL=${BASE_URL:-http://localhost:8000}
     depends_on:
