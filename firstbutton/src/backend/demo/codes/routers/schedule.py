@@ -114,7 +114,7 @@ async def upload_schedule(
             if not creds:
                 raise HTTPException(status_code=403, detail="인증 정보를 찾을 수 없습니다. 다시 로그인해 주세요.")
             
-            google_calendar(events_list)
+            google_calendar(events_list, creds)
             return {"status": "success", "count": len(events_list), "user": user_email}
         
         return {"status": "error", "message": "일정을 찾지 못했습니다."}
