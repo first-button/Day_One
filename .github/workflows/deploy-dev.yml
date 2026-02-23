@@ -76,3 +76,30 @@ jobs:
             docker compose ps
 
             echo "DEPLOY OK: $(git rev-parse --short HEAD)"
+
+  notify:
+    needs: [build-and-push, deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ "${{ needs.deploy.result }}" = "success" ]; then
+            COLOR=3066993
+            TITLE="Deploy Succeeded"
+            DESC="**Branch:** develop\n**Commit:** \`${GITHUB_SHA::7}\`\n**By:** ${{ github.actor }}"
+          elif [ "${{ needs.build-and-push.result }}" = "failure" ]; then
+            COLOR=15158332
+            TITLE="Build Failed"
+            DESC="**Branch:** develop\n**Commit:** \`${GITHUB_SHA::7}\`\n**By:** ${{ github.actor }}\n**Stage:** Docker build/push\n[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          else
+            COLOR=15158332
+            TITLE="Deploy Failed"
+            DESC="**Branch:** develop\n**Commit:** \`${GITHUB_SHA::7}\`\n**By:** ${{ github.actor }}\n**Stage:** EC2 deploy\n[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
+
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"$TITLE\",\"description\":\"$DESC\",\"color\":$COLOR}]}" \
+            "$DISCORD_WEBHOOK"
