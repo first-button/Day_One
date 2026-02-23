@@ -17,7 +17,8 @@ from startButton import integrated_file_reader, parse_response_to_events, google
 STEP_DURATION = Histogram(
     'upload_step_duration_seconds',
     'Duration of each upload pipeline step',
-    ['step']
+    ['step'],
+    buckets=[0.1, 0.5, 1, 2.5, 5, 10, 15, 30, 45, 60, 90, 120]
 )
 UPLOAD_FILE_SIZE = Histogram(
     'upload_file_size_bytes',
