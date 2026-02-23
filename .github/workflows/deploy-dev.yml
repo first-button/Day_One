@@ -48,8 +48,9 @@ jobs:
           script: |
             set -e
             APP_DIR="${{ secrets.EC2_APP_DIR }}"
+            INFRA_DIR="${{ secrets.EC2_APP_DIR }}_cloud"
 
-            # First time: init repo
+            # First time: init app repo
             if [ ! -d "$APP_DIR/.git" ]; then
               mkdir -p "$APP_DIR"
               cd "$APP_DIR"
@@ -59,14 +60,30 @@ jobs:
               git checkout -b develop origin/develop
             fi
 
+            # First time: init infra repo
+            if [ ! -d "$INFRA_DIR/.git" ]; then
+              mkdir -p "$INFRA_DIR"
+              cd "$INFRA_DIR"
+              git init
+              git remote add origin https://github.com/first-button/Day_One_Cloud.git
+              git fetch origin main
+              git checkout -b main origin/main
+            fi
+
             cd "$APP_DIR"
             git fetch origin develop
             git reset --hard origin/develop
 
+            cd "$INFRA_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
             # Login to ECR
             aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 084375578827.dkr.ecr.us-east-1.amazonaws.com
 
-            # Pull and deploy
+            # Pull and deploy using infra configs
+            cd "$INFRA_DIR/environments/dev"
+            export APP_DIR="${{ secrets.EC2_APP_DIR }}"
             ECR_REGISTRY=084375578827.dkr.ecr.us-east-1.amazonaws.com
             docker compose pull backend frontend
             docker compose up -d
@@ -75,7 +92,7 @@ jobs:
             sleep 10
             docker compose ps
 
-            echo "DEPLOY OK: $(git rev-parse --short HEAD)"
+            echo "DEPLOY OK: $(cd $APP_DIR && git rev-parse --short HEAD)"
 
   notify:
     needs: [build-and-push, deploy]
