@@ -1,0 +1,11 @@
+# Node
+firstbutton/node_modules/
+firstbutton/dist/
+
+# Python
+firstbutton/src/backend/**/__pycache__/
+firstbutton/src/backend/**/*.pyc
+
+# Secrets
+firstbutton/src/backend/demo/secret/
+firstbutton/src/backend/demo/codes/.env
