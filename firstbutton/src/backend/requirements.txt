@@ -8,3 +8,5 @@ python-dotenv
 Pillow
 python-multipart
 boto3
+prometheus-fastapi-instrumentator
+prometheus-client

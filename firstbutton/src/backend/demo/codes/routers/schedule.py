@@ -8,9 +8,31 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Cookie
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
+from prometheus_client import Histogram, Counter, Gauge
 
 # 상위 폴더에 있는 startButton을 가져옵니다.
 from startButton import integrated_file_reader, parse_response_to_events, google_calendar
+
+# --- Prometheus 메트릭 정의 ---
+STEP_DURATION = Histogram(
+    'upload_step_duration_seconds',
+    'Duration of each upload pipeline step',
+    ['step']
+)
+UPLOAD_FILE_SIZE = Histogram(
+    'upload_file_size_bytes',
+    'Size of uploaded files',
+    buckets=[1024, 10240, 102400, 1048576, 10485760]  # 1KB ~ 10MB
+)
+UPLOAD_ERRORS = Counter(
+    'upload_errors_total',
+    'Total upload errors',
+    ['error_type']
+)
+CONCURRENT_UPLOADS = Gauge(
+    'concurrent_uploads',
+    'Number of uploads currently being processed'
+)
 
 load_dotenv()
 
@@ -92,39 +114,47 @@ async def upload_schedule(
     unique_id = str(uuid.uuid4())[:8]
     save_path = f"temp_{unique_id}_{original_filename}"
 
+    CONCURRENT_UPLOADS.inc()
     try:
         # 3. 파일 물리적 저장
-        with open(save_path, "wb") as buffer:
-            shutil.copyfileobj(uploaded_file.file, buffer)
+        with STEP_DURATION.labels(step='file_save').time():
+            with open(save_path, "wb") as buffer:
+                shutil.copyfileobj(uploaded_file.file, buffer)
+            UPLOAD_FILE_SIZE.observe(os.path.getsize(save_path))
 
         # 4. AI 분석 (가독성 있게 변수 전달)
         # 여기서 base_name은 AI가 일정 요약본 앞에 [파일명]을 붙일 때 사용됩니다.
-        ai_response = integrated_file_reader(
-            file_path=save_path, 
-            file_type=file_extension, 
-            file_name=base_name, 
-            color=event_color
-        )
+        with STEP_DURATION.labels(step='ai_analysis').time():
+            ai_response = integrated_file_reader(
+                file_path=save_path,
+                file_type=file_extension,
+                file_name=base_name,
+                color=event_color
+            )
 
         # 5. 데이터 파싱 및 캘린더 등록
-        events_list = parse_response_to_events(ai_response)
+        with STEP_DURATION.labels(step='parse_events').time():
+            events_list = parse_response_to_events(ai_response)
 
         if events_list:
             creds = get_valid_creds(user_email)
             if not creds:
                 raise HTTPException(status_code=403, detail="인증 정보를 찾을 수 없습니다. 다시 로그인해 주세요.")
-            
-            google_calendar(events_list, creds)
+
+            with STEP_DURATION.labels(step='calendar_register').time():
+                google_calendar(events_list, creds)
             return {"status": "success", "count": len(events_list), "user": user_email}
-        
+
         return {"status": "error", "message": "일정을 찾지 못했습니다."}
 
     except Exception as e:
+        UPLOAD_ERRORS.labels(error_type=type(e).__name__).inc()
         # 에러 발생 시 상세 로그 출력
         print(f"❌ Error processing {original_filename}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"서버 내부 처리 오류: {str(e)}")
 
     finally:
+        CONCURRENT_UPLOADS.dec()
         # 6. 작업 완료 후 임시 파일 삭제
         # 클라우드 서버에 저장 할 예정.
         if os.path.exists(save_path):
