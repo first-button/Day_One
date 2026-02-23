@@ -27,13 +27,13 @@ jobs:
 
       - name: Build and push backend
         run: |
-          docker build -f Dockerfile.backend -t ${{ env.ECR_REGISTRY }}/day-one-dev/backend:prod .
-          docker push ${{ env.ECR_REGISTRY }}/day-one-dev/backend:prod
+          docker build -f Dockerfile.backend -t ${{ env.ECR_REGISTRY }}/day-one-prod/backend:latest .
+          docker push ${{ env.ECR_REGISTRY }}/day-one-prod/backend:latest
 
       - name: Build and push frontend
         run: |
-          docker build -f Dockerfile.frontend -t ${{ env.ECR_REGISTRY }}/day-one-dev/frontend:prod .
-          docker push ${{ env.ECR_REGISTRY }}/day-one-dev/frontend:prod
+          docker build -f Dockerfile.frontend -t ${{ env.ECR_REGISTRY }}/day-one-prod/frontend:latest .
+          docker push ${{ env.ECR_REGISTRY }}/day-one-prod/frontend:latest
 
   deploy-backend:
     needs: build-and-push
