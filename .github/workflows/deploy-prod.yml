@@ -71,6 +71,7 @@ jobs:
 
             # Deploy backend
             cd "$INFRA_DIR/environments/prod"
+            ln -sf /home/ubuntu/.env .env
             export ECR_REGISTRY=084375578827.dkr.ecr.us-east-1.amazonaws.com
             docker compose -f docker-compose.backend.yml pull
             docker compose -f docker-compose.backend.yml up -d
@@ -117,6 +118,7 @@ jobs:
 
             # Deploy frontend
             cd "$INFRA_DIR/environments/prod"
+            ln -sf /home/ubuntu/.env .env
             export ECR_REGISTRY=084375578827.dkr.ecr.us-east-1.amazonaws.com
             docker compose -f docker-compose.frontend.yml pull
             docker compose -f docker-compose.frontend.yml up -d
