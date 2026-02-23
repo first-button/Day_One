@@ -1,4 +1,4 @@
-import os
+﻿import os
 import google.generativeai as genai
 from PIL import Image
 import json
@@ -15,14 +15,14 @@ SCOPES = ['https://www.googleapis.com/auth/calendar']
 GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API")
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-flash-latest')
+model = genai.GenerativeModel('gemini-2.5-flash-lite')
 
 # AI 프롬프트 설정
 PROMPT_TEMPLATE = "Summarize all the academic schedules from this {file} file and organize them into a JSON format in English. \
                 However, make sure to strictly comply with the following requirements: \
-                1. Things to be excluded: TA office hour, professor office hour, assignment release date. \
-                2. Things to be included: quiz, midterm, final exam, any kind of project deadlines, assignment submission deadlines, no class, holiday, reading day, any kind of breaks.\
-                3. Do not contain any other information except the schedule information.\
+                1. Things must be excluded: TA office hour, professor office hour, assignment release date. \
+                2. Things must be included: quiz, midterm, final exam, project deadlines, assignment submission deadlines, no class, holiday, reading day, any kind of breaks.\
+                3. Do not contain any other information except the things in #2.\
                 4. Finally, the keys of JSON object must be: summary, location, description, colorId, start, end.\
                 5. **The start key and end key must be a dictionary object with only the 'date' key (YYYY-MM-DD format). Do NOT include 'timeZone' or 'dateTime'. The 'end' date must be one day after the 'start' date to ensure it is displayed as an all-day event.** \
                     For example: **'start': {{'date': '2025-09-01'}}, 'end': {{'date': '2025-09-02'}}**. \
@@ -30,6 +30,7 @@ PROMPT_TEMPLATE = "Summarize all the academic schedules from this {file} file an
                     For example, if the semester break is from June 1 to June 10, then the start date must be June 1 and the end date must be June 11.\
                 7. The colorId field must be set to {colorId}.\
                 8. The summary field must have the file name \"{name}\" at the beginning with brackets wrapped. But if the schedule is related to one of these three categories: holiday, semester break, no class, then do not include the file name.\
+                    Also, the summary must be 2 words directly related to the schedule.\
                 9. The description field must have the brief description of the schedule in 3 ~ 4 words. If a particular schedule has a description in the {file}, use that description. But if not, make the description on your own within 3 ~ 4 words. \
                 10. If the schedule is related to one of these categories: holiday, semester break, no class, then choose one of them and include it in the description. \
                 11. The output must be a valid JSON format only, without any additional words." 
@@ -108,7 +109,11 @@ def google_calendar(events_list, credentials):
                 if e.resp.status == 409:
                     print(f"중복 일정 건너뜀: {event_data.get('summary')}")
                 else: 
+                    error_body = e.content.decode("utf-8", errors="replace") if isinstance(e.content, (bytes, bytearray)) else str(e.content)
                     print(f"등록 오류: {event_data.get('summary')} - {e}")
+                    print(f"[GCAL][ERROR] status={e.resp.status}")
+                    print(f"[GCAL][ERROR] payload={json.dumps(event_data, ensure_ascii=False)}")
+                    print(f"[GCAL][ERROR] response={error_body}")
         
     except HttpError as error:
         print(f"구글 서비스 연결 오류: {error}")
