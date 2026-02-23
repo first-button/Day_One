@@ -5,8 +5,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from routers import schedule, auth
+from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="첫단추 API")
+
+Instrumentator().instrument(app).expose(app)
 
 async def read_index():
     """메인 인덱스 페이지 반환"""
