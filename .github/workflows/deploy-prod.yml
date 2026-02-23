@@ -1,0 +1,158 @@
+name: Deploy to EC2 (production)
+
+on:
+  push:
+    branches: ["main"]
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: 084375578827.dkr.ecr.us-east-1.amazonaws.com
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend
+        run: |
+          docker build -f Dockerfile.backend -t ${{ env.ECR_REGISTRY }}/day-one-dev/backend:prod .
+          docker push ${{ env.ECR_REGISTRY }}/day-one-dev/backend:prod
+
+      - name: Build and push frontend
+        run: |
+          docker build -f Dockerfile.frontend -t ${{ env.ECR_REGISTRY }}/day-one-dev/frontend:prod .
+          docker push ${{ env.ECR_REGISTRY }}/day-one-dev/frontend:prod
+
+  deploy-backend:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Backend via Bastion
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_BACKEND_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          proxy_host: ${{ secrets.PROD_BASTION_HOST }}
+          proxy_username: ubuntu
+          proxy_key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            INFRA_DIR="/home/ubuntu/Day_One_Cloud"
+
+            # First time: init infra repo
+            if [ ! -d "$INFRA_DIR/.git" ]; then
+              mkdir -p "$INFRA_DIR"
+              cd "$INFRA_DIR"
+              git init
+              git remote add origin https://github.com/first-button/Day_One_Cloud.git
+              git fetch origin main
+              git checkout -b main origin/main
+            fi
+
+            cd "$INFRA_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Login to ECR
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 084375578827.dkr.ecr.us-east-1.amazonaws.com
+
+            # Deploy backend
+            cd "$INFRA_DIR/environments/prod"
+            export ECR_REGISTRY=084375578827.dkr.ecr.us-east-1.amazonaws.com
+            docker compose -f docker-compose.backend.yml pull
+            docker compose -f docker-compose.backend.yml up -d
+
+            # Verify
+            sleep 10
+            docker compose -f docker-compose.backend.yml ps
+
+            echo "BACKEND DEPLOY OK"
+
+  deploy-frontend:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Frontend via Bastion
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_FRONTEND_HOST }}
+          username: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
+          proxy_host: ${{ secrets.PROD_BASTION_HOST }}
+          proxy_username: ubuntu
+          proxy_key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            INFRA_DIR="/home/ubuntu/Day_One_Cloud"
+
+            # First time: init infra repo
+            if [ ! -d "$INFRA_DIR/.git" ]; then
+              mkdir -p "$INFRA_DIR"
+              cd "$INFRA_DIR"
+              git init
+              git remote add origin https://github.com/first-button/Day_One_Cloud.git
+              git fetch origin main
+              git checkout -b main origin/main
+            fi
+
+            cd "$INFRA_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Login to ECR
+            aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 084375578827.dkr.ecr.us-east-1.amazonaws.com
+
+            # Deploy frontend
+            cd "$INFRA_DIR/environments/prod"
+            export ECR_REGISTRY=084375578827.dkr.ecr.us-east-1.amazonaws.com
+            docker compose -f docker-compose.frontend.yml pull
+            docker compose -f docker-compose.frontend.yml up -d
+
+            # Verify
+            sleep 10
+            docker compose -f docker-compose.frontend.yml ps
+
+            echo "FRONTEND DEPLOY OK"
+
+  notify:
+    needs: [build-and-push, deploy-backend, deploy-frontend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ "${{ needs.deploy-backend.result }}" = "success" ] && [ "${{ needs.deploy-frontend.result }}" = "success" ]; then
+            COLOR=3066993
+            TITLE="[PROD] Deploy Succeeded"
+            DESC="**Branch:** main\n**Commit:** \`${GITHUB_SHA::7}\`\n**By:** ${{ github.actor }}"
+          elif [ "${{ needs.build-and-push.result }}" = "failure" ]; then
+            COLOR=15158332
+            TITLE="[PROD] Build Failed"
+            DESC="**Branch:** main\n**Commit:** \`${GITHUB_SHA::7}\`\n**By:** ${{ github.actor }}\n**Stage:** Docker build/push\n[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          else
+            COLOR=15158332
+            TITLE="[PROD] Deploy Failed"
+            FAILED=""
+            [ "${{ needs.deploy-backend.result }}" != "success" ] && FAILED="Backend"
+            [ "${{ needs.deploy-frontend.result }}" != "success" ] && FAILED="$FAILED Frontend"
+            DESC="**Branch:** main\n**Commit:** \`${GITHUB_SHA::7}\`\n**By:** ${{ github.actor }}\n**Failed:** $FAILED\n[View Logs](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          fi
+
+          curl -s -H "Content-Type: application/json" \
+            -d "{\"embeds\":[{\"title\":\"$TITLE\",\"description\":\"$DESC\",\"color\":$COLOR}]}" \
+            "$DISCORD_WEBHOOK"
