@@ -3,8 +3,9 @@ import { Calendar, FileText, Image, CheckCircle, ArrowRight, X, Trash2, Zap } fr
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
-import { ImageWithFallback } from "./figma/ImageWithFallback";
 import calendarImage from "../assets/calendar.jpg";
+import syllabusImage from "../assets/syllabus.jpg";
+import photoTakingImage from "../assets/photo-taking.jpg";
 import { AnimatePresence, motion } from "motion/react"; // 애니메이션 효과
 
 interface DocumentCalendarWebsiteProps {
@@ -252,8 +253,8 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
             
             <div className="relative">
               <div className="relative aspect-square rounded-2xl overflow-hidden bg-gradient-to-br from-orange-100 to-orange-50">
-                <ImageWithFallback
-                  src="https://images.unsplash.com/photo-1633526543814-9718c8922b7a?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxkb2N1bWVudHMlMjBjYWxlbmRhciUyMHBsYW5uaW5nfGVufDF8fHx8MTc1OTI0NzE5OHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+                <img
+                  src={calendarImage}
                   alt="문서 및 캘린더"
                   className="w-full h-full object-cover"
                 />
@@ -291,7 +292,11 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
                 </p>
                  <div className="aspect-video bg-muted rounded-lg overflow-hidden">
                    {/* 이미지 태그 생략 가능하지만 구조 유지 */}
-                   <div className="w-full h-full bg-slate-200" />
+                  <img
+                    src={syllabusImage}
+                    alt="Syllabus preview"
+                    className="w-full h-full object-cover"
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -307,7 +312,7 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
                   사진으로 찍은 일정표나 화이트보드의 일정도 정확하게 인식합니다.
                 </p>
                  <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-                   <div className="w-full h-full bg-slate-200" />
+                  <img src={photoTakingImage} alt="Photo taking preview" className="w-full h-full object-cover"/>
                 </div>
               </CardContent>
             </Card>
