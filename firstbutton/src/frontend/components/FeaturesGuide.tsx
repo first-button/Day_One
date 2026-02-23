@@ -2,7 +2,7 @@ import { ArrowLeft, Upload, FileText, Image as ImageIcon, Calendar, CheckCircle2
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
-import calendarImage from "../assets/calendar.jpg";
+import calendarImage from "../assets/calendar.png";
 
 interface FeaturesGuideProps {
   onBack: () => void;
