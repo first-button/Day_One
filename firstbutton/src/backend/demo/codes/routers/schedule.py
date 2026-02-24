@@ -18,7 +18,7 @@ STEP_DURATION = Histogram(
     'upload_step_duration_seconds',
     'Duration of each upload pipeline step',
     ['step'],
-    buckets=[0.1, 0.5, 1, 2.5, 5, 10, 15, 30, 45, 60, 90, 120]
+    buckets=[0.1, 0.5, 1, 2, 3, 4, 5, 7.5, 10, 15, 30, 45, 60, 90, 120]
 )
 UPLOAD_FILE_SIZE = Histogram(
     'upload_file_size_bytes',
