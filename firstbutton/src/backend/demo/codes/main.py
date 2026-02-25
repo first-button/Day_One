@@ -9,7 +9,13 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 app = FastAPI(title="첫단추 API")
 
-Instrumentator().instrument(app).expose(app)
+# 업로드 API가 10~60초+ 걸리므로 기본 버킷(~1s)으로는 부족
+UPLOAD_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 7.5, 10, 15, 20, 30, 45, 60, 90, 120)
+
+Instrumentator().instrument(
+    app,
+    latency_lowr_buckets=UPLOAD_BUCKETS,
+).expose(app)
 
 async def read_index():
     """메인 인덱스 페이지 반환"""

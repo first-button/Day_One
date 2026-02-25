@@ -87,7 +87,7 @@ jobs:
             export APP_DIR
             export ECR_REGISTRY=084375578827.dkr.ecr.us-east-1.amazonaws.com
             docker compose pull backend frontend
-            docker compose up -d
+            docker compose up -d --force-recreate
 
             # Verify
             sleep 10
