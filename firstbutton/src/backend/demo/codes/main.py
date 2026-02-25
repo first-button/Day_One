@@ -1,11 +1,13 @@
 import config  # Secrets Manager 로드 (다른 모듈보다 먼저 import)
 import os
+import threading
 from fastapi import FastAPI, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from routers import schedule, auth
 from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import start_http_server
 
 app = FastAPI(title="첫단추 API")
 
@@ -15,7 +17,11 @@ UPLOAD_BUCKETS = (0.1, 0.5, 1, 2.5, 5, 7.5, 10, 15, 20, 30, 45, 60, 90, 120)
 Instrumentator().instrument(
     app,
     latency_lowr_buckets=UPLOAD_BUCKETS,
-).expose(app)
+)
+
+# /metrics를 별도 스레드(포트 9091)에서 서빙
+# 메인 앱이 부하로 바빠도 Prometheus 스크래핑이 즉시 응답
+threading.Thread(target=start_http_server, args=(9091,), daemon=True).start()
 
 async def read_index():
     """메인 인덱스 페이지 반환"""
