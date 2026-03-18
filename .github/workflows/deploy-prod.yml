@@ -8,6 +8,7 @@ env:
   AWS_REGION: us-east-1
   ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
   ECS_CLUSTER: day-one-prod
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   deploy:
@@ -29,25 +30,58 @@ jobs:
 
       - name: Build and push mysql
         run: |
-          docker build -t $ECR_REGISTRY/day-one-prod/mysql:latest \
+          docker build -t $ECR_REGISTRY/day-one-prod/mysql:$IMAGE_TAG \
+            -t $ECR_REGISTRY/day-one-prod/mysql:latest \
             -f ./Dockerfile.mysql ./
+          docker push $ECR_REGISTRY/day-one-prod/mysql:$IMAGE_TAG
           docker push $ECR_REGISTRY/day-one-prod/mysql:latest
 
       - name: Build and push backend
         run: |
-          docker build -t $ECR_REGISTRY/day-one-prod/backend:latest \
+          docker build -t $ECR_REGISTRY/day-one-prod/backend:$IMAGE_TAG \
+            -t $ECR_REGISTRY/day-one-prod/backend:latest \
             -f ./Dockerfile.backend ./
+          docker push $ECR_REGISTRY/day-one-prod/backend:$IMAGE_TAG
           docker push $ECR_REGISTRY/day-one-prod/backend:latest
 
       - name: Build and push frontend
         run: |
-          docker build -t $ECR_REGISTRY/day-one-prod/frontend:latest \
+          docker build -t $ECR_REGISTRY/day-one-prod/frontend:$IMAGE_TAG \
+            -t $ECR_REGISTRY/day-one-prod/frontend:latest \
             --build-arg NGINX_CONF=nginx.prod.conf \
             -f ./Dockerfile.frontend ./
+          docker push $ECR_REGISTRY/day-one-prod/frontend:$IMAGE_TAG
           docker push $ECR_REGISTRY/day-one-prod/frontend:latest
 
-      - name: Deploy to ECS
+      - name: Update ECS task definition and deploy
         run: |
+          # Get current task definition
+          TASK_DEF=$(aws ecs describe-task-definition --task-definition day-one-prod-app --query taskDefinition)
+
+          # Replace image tags with new commit hash
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | \
+            sed "s|day-one-prod/mysql:[a-zA-Z0-9]*|day-one-prod/mysql:$IMAGE_TAG|g" | \
+            sed "s|day-one-prod/backend:[a-zA-Z0-9]*|day-one-prod/backend:$IMAGE_TAG|g" | \
+            sed "s|day-one-prod/frontend:[a-zA-Z0-9]*|day-one-prod/frontend:$IMAGE_TAG|g")
+
+          # Register new task definition
+          echo "$NEW_TASK_DEF" | jq '{
+            family: .family,
+            networkMode: .networkMode,
+            containerDefinitions: .containerDefinitions,
+            volumes: .volumes,
+            requiresCompatibilities: .requiresCompatibilities,
+            cpu: .cpu,
+            memory: .memory,
+            executionRoleArn: .executionRoleArn,
+            taskRoleArn: .taskRoleArn
+          }' > /tmp/taskdef.json
+
+          NEW_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/taskdef.json --query taskDefinition.taskDefinitionArn --output text)
+
+          # Update service with new task definition
           aws ecs update-service --cluster $ECS_CLUSTER --service app \
+            --task-definition "$NEW_ARN" \
             --force-new-deployment --no-cli-pager > /dev/null
-          echo "DEPLOY OK: $(git rev-parse --short HEAD)"
+
+          echo "DEPLOY OK: $IMAGE_TAG"
