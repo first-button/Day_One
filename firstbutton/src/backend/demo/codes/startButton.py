@@ -1,23 +1,26 @@
 import hashlib
 import json
 import os
+import re
+from datetime import date, timedelta
 
 import google.generativeai as genai
 import pymupdf
 from PIL import Image
-from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+from config import load_env
 
-load_dotenv()
 
-# 1. 설정 및 모델 로드
+load_env()
+
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API")
 
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash-lite")
+GENERATION_CONFIG = {"temperature": 0}
 
 COMMON_PROMPT_RULES = """
 1. Exclude TA office hour, professor office hour, and assignment release date.
@@ -39,25 +42,65 @@ COMMON_PROMPT_RULES = """
 14. For a one-day event, end.date must be one day after start.date so it is saved as an all-day Google Calendar event.
 15. If one event lasts for consecutive days, combine it into one JSON object and set end.date to the day after the final day.
 16. The output must be a valid JSON array only, with no extra text.
+17. Preserve the exact calendar day written in the source. Never move an event to the previous or next day.
+18. If the source contains both a weekday and a numeric date, trust the numeric date written in the source.
+19. If the source says Feb 2, 2/2, or 2026-02-02, start.date must be exactly that day.
+20. For a one-day event, only change end.date by adding one day. Do not change start.date when creating an all-day event.
+21. In tables, copy the date from the same row or cell as the event. Do not borrow a date from a nearby row.
 """
+
+WEEKDAY_MARKERS = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
+
+DATE_PATTERNS = (
+    re.compile(r"\b\d{4}[-/.]\d{1,2}[-/.]\d{1,2}\b"),
+    re.compile(r"\b\d{1,2}[-/.]\d{1,2}(?:[-/.]\d{2,4})?\b"),
+    re.compile(
+        r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
+        r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|"
+        r"oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{1,2}"
+        r"(?:,\s*\d{4})?\b",
+        re.IGNORECASE,
+    ),
+)
+
+COMMON_EVENT_MARKERS = (
+    ("reading day", "reading day"),
+    ("spring break", "break"),
+    ("fall break", "break"),
+    ("winter break", "break"),
+    ("summer break", "break"),
+    ("semester break", "break"),
+    ("holiday", "holiday"),
+    ("no classes", "no class"),
+    ("no class", "no class"),
+    ("recess", "break"),
+    ("break", "break"),
+)
 
 
 def integrated_file_reader(file_path, file_type, file_name, color):
-    """파일을 읽어 Gemini AI를 통해 일정 JSON 텍스트 생성"""
     try:
         if file_type in [".jpg", ".jpeg", ".png"]:
             processed_file = Image.open(file_path)
             prompt = build_direct_file_prompt(file_type, file_name, color)
-            response = model.generate_content([processed_file, prompt])
+            response = generate_schedule_content([processed_file, prompt])
             return response.text
 
         if file_type == ".pdf":
             return read_pdf_with_fallbacks(file_path, file_name, color)
 
-        raise ValueError(f"지원하지 않는 파일 형식입니다: {file_type}")
+        raise ValueError(f"Unsupported file type: {file_type}")
 
     except FileNotFoundError:
-        return f"오류: '{file_path}' 경로에서 파일을 찾을 수 없습니다."
+        return f"Error: file not found at '{file_path}'."
 
 
 def build_schedule_prompt(intro, file_name, color, source_name, content=None):
@@ -69,20 +112,24 @@ def build_schedule_prompt(intro, file_name, color, source_name, content=None):
 
     if content is None:
         prompt += (
-            "17. Use only the uploaded file content.\n"
-            "18. Ignore non-schedule content in the uploaded file.\n"
-            "19. Do not infer events that are not supported by the uploaded file."
+            "22. Use only the uploaded file content.\n"
+            "23. Ignore non-schedule content in the uploaded file.\n"
+            "24. Do not infer events that are not supported by the uploaded file."
         )
         return prompt
 
     prompt += (
-        f"17. Use only the provided {source_name}.\n"
-        f"18. Ignore {source_name} content that is not related to schedules.\n"
-        f"19. Do not infer events that are not supported by the provided {source_name}.\n\n"
+        f"22. Use only the provided {source_name}.\n"
+        f"23. Ignore {source_name} content that is not related to schedules.\n"
+        f"24. Do not infer events that are not supported by the provided {source_name}.\n\n"
         f"Provided {source_name}:\n"
         f"{content}"
     )
     return prompt.strip()
+
+
+def generate_schedule_content(contents):
+    return model.generate_content(contents, generation_config=GENERATION_CONFIG)
 
 
 def build_direct_file_prompt(file_type, file_name, color):
@@ -95,9 +142,9 @@ def build_direct_file_prompt(file_type, file_name, color):
 
 
 def read_pdf_with_fallbacks(file_path, file_name, color):
-    table_text = extract_week_tables_as_markdown(file_path)
+    table_text = extract_schedule_tables_as_markdown(file_path)
     if table_text:
-        print("[PDF] 'week' 테이블 추출 성공. Gemini에 표 텍스트를 전달합니다.")
+        print("[PDF] Schedule-like table extraction succeeded. Sending table text to Gemini.")
         prompt = build_schedule_prompt(
             intro="You are given schedule tables extracted from a syllabus PDF.",
             file_name=file_name,
@@ -105,10 +152,10 @@ def read_pdf_with_fallbacks(file_path, file_name, color):
             source_name="table data",
             content=table_text,
         )
-        response = model.generate_content(prompt)
+        response = generate_schedule_content(prompt)
         return response.text
 
-    print("[PDF] 'week' 테이블을 찾지 못했습니다. OCR을 시도합니다.")
+    print("[PDF] No schedule-like table found. Falling back to OCR.")
     ocr_text = extract_text_with_ocr(file_path)
     if ocr_text:
         prompt = build_schedule_prompt(
@@ -118,23 +165,35 @@ def read_pdf_with_fallbacks(file_path, file_name, color):
             source_name="OCR text",
             content=ocr_text,
         )
-        response = model.generate_content(prompt)
+        response = generate_schedule_content(prompt)
         return response.text
 
-    print("[PDF] OCR도 실패했습니다. Gemini PDF 업로드 방식으로 되돌아갑니다.")
+    print("[PDF] OCR failed. Falling back to direct Gemini PDF upload.")
     uploaded_pdf = genai.upload_file(path=file_path, display_name="syllabus PDF")
     prompt = build_direct_file_prompt(".pdf", file_name, color)
-    response = model.generate_content([uploaded_pdf, prompt])
+    response = generate_schedule_content([uploaded_pdf, prompt])
     return response.text
 
 
-def extract_week_tables_as_markdown(file_path):
+def table_looks_like_schedule(markdown):
+    if not markdown:
+        return False
+
+    lowered = markdown.lower()
+
+    if "week" in lowered or any(day in lowered for day in WEEKDAY_MARKERS):
+        return True
+
+    return any(pattern.search(markdown) for pattern in DATE_PATTERNS)
+
+
+def extract_schedule_tables_as_markdown(file_path):
     markdown_tables = []
 
     try:
         document = pymupdf.open(file_path)
     except Exception as exc:
-        print(f"[PDF] 문서를 여는 중 오류가 발생했습니다: {exc}")
+        print(f"[PDF] Failed to open document: {exc}")
         return ""
 
     try:
@@ -142,17 +201,19 @@ def extract_week_tables_as_markdown(file_path):
             try:
                 found_tables = page.find_tables()
             except Exception as exc:
-                print(f"[PDF] 페이지 {page_index} 테이블 탐지 실패: {exc}")
+                print(f"[PDF] Table detection failed on page {page_index}: {exc}")
                 continue
 
             for table_index, table in enumerate(found_tables.tables, start=1):
                 try:
                     markdown = (table.to_markdown(fill_empty=True) or "").strip()
                 except Exception as exc:
-                    print(f"[PDF] 페이지 {page_index} 테이블 {table_index} 변환 실패: {exc}")
+                    print(
+                        f"[PDF] Table conversion failed on page {page_index}, table {table_index}: {exc}"
+                    )
                     continue
 
-                if not markdown or "week" not in markdown.lower():
+                if not table_looks_like_schedule(markdown):
                     continue
 
                 markdown_tables.append(
@@ -170,7 +231,7 @@ def extract_text_with_ocr(file_path):
     try:
         document = pymupdf.open(file_path)
     except Exception as exc:
-        print(f"[OCR] 문서를 여는 중 오류가 발생했습니다: {exc}")
+        print(f"[OCR] Failed to open document: {exc}")
         return ""
 
     try:
@@ -179,7 +240,7 @@ def extract_text_with_ocr(file_path):
                 text_page = page.get_textpage_ocr(language="eng", dpi=300, full=True)
                 page_text = page.get_text("text", textpage=text_page, sort=True).strip()
             except Exception as exc:
-                print(f"[OCR] 페이지 {page_index} OCR 실패: {exc}")
+                print(f"[OCR] OCR failed on page {page_index}: {exc}")
                 return ""
 
             if page_text:
@@ -190,10 +251,35 @@ def extract_text_with_ocr(file_path):
     return "\n\n".join(ocr_pages)
 
 
+def parse_iso_date(value):
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_event_dates(events):
+    normalized_events = []
+
+    for event_data in events:
+        start_value = event_data.get("start", {}).get("date")
+        end_value = event_data.get("end", {}).get("date")
+        start_date = parse_iso_date(start_value)
+        end_date = parse_iso_date(end_value)
+
+        if start_date and end_date and end_date <= start_date:
+            event_data.setdefault("end", {})["date"] = (
+                start_date + timedelta(days=1)
+            ).isoformat()
+
+        normalized_events.append(event_data)
+
+    return normalized_events
+
+
 def parse_response_to_events(response_text):
-    """AI의 텍스트 응답에서 JSON 배열을 추출하여 파싱"""
     if not response_text:
-        raise ValueError("AI 응답이 비어있습니다.")
+        raise ValueError("AI response was empty.")
 
     start = response_text.find("[")
     end = response_text.rfind("]")
@@ -202,81 +288,151 @@ def parse_response_to_events(response_text):
 
     candidate = response_text[start : end + 1]
     data = json.loads(candidate)
+    events = data if isinstance(data, list) else [data]
+    return normalize_event_dates(events)
 
-    return data if isinstance(data, list) else [data]
+
+def normalize_event_text(value):
+    return re.sub(r"[^a-z0-9]+", " ", (value or "").lower()).strip()
+
+
+def get_common_event_category(event_data):
+    searchable_text = " ".join(
+        filter(
+            None,
+            [event_data.get("summary", ""), event_data.get("description", "")],
+        )
+    )
+    normalized = normalize_event_text(searchable_text)
+
+    for marker, category in COMMON_EVENT_MARKERS:
+        if marker in normalized:
+            return category
+
+    return ""
+
+
+def get_event_date_range(event_data):
+    start = event_data.get("start", {}).get("date", "")
+    end = event_data.get("end", {}).get("date", "")
+    return start, end
+
+
+def find_existing_common_event(service, event_data, dedupe_key):
+    start_date, end_date = get_event_date_range(event_data)
+    if not start_date or not end_date:
+        return False
+
+    time_min = f"{start_date}T00:00:00Z"
+    time_max = f"{end_date}T00:00:00Z"
+
+    found = (
+        service.events()
+        .list(
+            calendarId="primary",
+            privateExtendedProperty=f"dedupeKey={dedupe_key}",
+            showDeleted=False,
+            singleEvents=True,
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=1,
+        )
+        .execute()
+    )
+    if found.get("items"):
+        return True
+
+    target_category = get_common_event_category(event_data)
+    target_range = get_event_date_range(event_data)
+
+    fallback = (
+        service.events()
+        .list(
+            calendarId="primary",
+            showDeleted=False,
+            singleEvents=True,
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=20,
+        )
+        .execute()
+    )
+
+    for item in fallback.get("items", []):
+        if get_common_event_category(item) != target_category:
+            continue
+        if get_event_date_range(item) != target_range:
+            continue
+        return True
+
+    return False
 
 
 def google_calendar(events_list, credentials):
     if not credentials:
-        print("❌ 인증 정보가 없습니다. 일정을 등록할 수 없습니다.")
+        print("Credentials are missing. Skipping calendar registration.")
         return
 
     try:
         service = build("calendar", "v3", credentials=credentials)
+        seen_common_event_keys = set()
 
         for event_data in events_list:
             try:
+                dedupe_key = None
+
                 if is_common_event(event_data):
                     dedupe_key = make_common_event_id(event_data)
+                    if dedupe_key in seen_common_event_keys:
+                        print(
+                            f"Skipping duplicate common event from current batch: {event_data.get('summary')}"
+                        )
+                        continue
+
                     event_data.setdefault("extendedProperties", {}).setdefault(
                         "private", {}
                     )["dedupeKey"] = dedupe_key
 
-                    time_min = f"{event_data['start']['date']}T00:00:00Z"
-                    time_max = f"{event_data['end']['date']}T00:00:00Z"
-
-                    found = (
-                        service.events()
-                        .list(
-                            calendarId="primary",
-                            privateExtendedProperty=f"dedupeKey={dedupe_key}",
-                            showDeleted=False,
-                            singleEvents=True,
-                            timeMin=time_min,
-                            timeMax=time_max,
-                            maxResults=1,
+                    if find_existing_common_event(service, event_data, dedupe_key):
+                        print(
+                            f"Skipping duplicate common event already in calendar: {event_data.get('summary')}"
                         )
-                        .execute()
-                    )
-
-                    if found.get("items"):
-                        print(f"중복 일정(이미 존재) 건너뜀: {event_data.get('summary')}")
+                        seen_common_event_keys.add(dedupe_key)
                         continue
 
                 service.events().insert(calendarId="primary", body=event_data).execute()
-                print(f"✅ 일정 등록 완료: {event_data.get('summary')}")
+                if dedupe_key:
+                    seen_common_event_keys.add(dedupe_key)
+                print(f"Event created: {event_data.get('summary')}")
 
-            except HttpError as e:
-                if e.resp.status == 409:
-                    print(f"중복 일정 건너뜀: {event_data.get('summary')}")
+            except HttpError as error:
+                if error.resp.status == 409:
+                    print(f"Skipping duplicate event: {event_data.get('summary')}")
                 else:
                     error_body = (
-                        e.content.decode("utf-8", errors="replace")
-                        if isinstance(e.content, (bytes, bytearray))
-                        else str(e.content)
+                        error.content.decode("utf-8", errors="replace")
+                        if isinstance(error.content, (bytes, bytearray))
+                        else str(error.content)
                     )
-                    print(f"등록 오류: {event_data.get('summary')} - {e}")
-                    print(f"[GCAL][ERROR] status={e.resp.status}")
+                    print(f"Calendar insert failed: {event_data.get('summary')} - {error}")
+                    print(f"[GCAL][ERROR] status={error.resp.status}")
                     print(
                         f"[GCAL][ERROR] payload={json.dumps(event_data, ensure_ascii=False)}"
                     )
                     print(f"[GCAL][ERROR] response={error_body}")
 
     except HttpError as error:
-        print(f"구글 서비스 연결 오류: {error}")
+        print(f"Google Calendar service error: {error}")
 
 
 def is_common_event(event_data):
-    """공통 일정(휴강, 방학 등)인지 확인하여 중복 방지 ID 부여 대상 선별"""
-    description = event_data.get("description", "").lower()
-    keywords = ["holiday", "break", "no class"]
-    return any(kw in description for kw in keywords)
+    return bool(get_common_event_category(event_data))
 
 
 def make_common_event_id(event_data):
-    """공통 일정에 대한 고유 해시 ID 생성 (중복 등록 방지)"""
     start = event_data["start"]["date"].replace("-", "")
     end = event_data["end"]["date"].replace("-", "")
-    summary_title = (event_data.get("summary", "").lower()).replace(" ", "")
-    raw_id = f"{summary_title}{start}{end}"
+    category = get_common_event_category(event_data)
+    summary_title = normalize_event_text(event_data.get("summary", "")).replace(" ", "")
+    raw_id = f"{category or summary_title}{start}{end}"
     return hashlib.md5(raw_id.encode()).hexdigest()

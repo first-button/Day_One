@@ -4,11 +4,11 @@ import shutil
 import uuid
 import mysql.connector
 from datetime import datetime
-from dotenv import load_dotenv
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Cookie
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from prometheus_client import Histogram, Counter, Gauge
+from config import load_env
 
 # 상위 폴더에 있는 startButton을 가져옵니다.
 from startButton import integrated_file_reader, parse_response_to_events, google_calendar
@@ -34,7 +34,7 @@ CONCURRENT_UPLOADS = Gauge(
     'Number of uploads currently being processed'
 )
 
-load_dotenv()
+load_env()
 
 # 이 라우터의 모든 주소 앞에 붙을 공통 주소
 router = APIRouter(prefix="/api/schedule", tags=["Schedule"])
