@@ -1,128 +1,277 @@
-﻿import os
-import google.generativeai as genai
-from PIL import Image
-import json
 import hashlib
+import json
+import os
 
+import google.generativeai as genai
+import pymupdf
+from PIL import Image
+from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from dotenv import load_dotenv
+
 
 load_dotenv()
 
 # 1. 설정 및 모델 로드
-SCOPES = ['https://www.googleapis.com/auth/calendar']
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 GEMINI_API_KEY = os.getenv("GOOGLE_GEMINI_API")
 
 genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash-lite')
+model = genai.GenerativeModel("gemini-2.5-flash-lite")
 
-# AI 프롬프트 설정
-PROMPT_TEMPLATE = "Summarize all the academic schedules from this {file} file and organize them into a JSON format in English. \
-                However, make sure to strictly comply with the following requirements: \
-                1. Things must be excluded: TA office hour, professor office hour, assignment release date. \
-                2. Things must be included: quiz, midterm, final exam, project deadlines, assignment submission deadlines, no class, holiday, reading day, any kind of breaks.\
-                3. Do not contain any other information except the things in #2.\
-                4. Finally, the keys of JSON object must be: summary, location, description, colorId, start, end.\
-                5. **The start key and end key must be a dictionary object with only the 'date' key (YYYY-MM-DD format). Do NOT include 'timeZone' or 'dateTime'. The 'end' date must be one day after the 'start' date to ensure it is displayed as an all-day event.** \
-                    For example: **'start': {{'date': '2025-09-01'}}, 'end': {{'date': '2025-09-02'}}**. \
-                6. If same schedule lasts for couple of consecutive days, you must not make those separately, but make them in one object.\
-                    For example, if the semester break is from June 1 to June 10, then the start date must be June 1 and the end date must be June 11.\
-                7. The colorId field must be set to {colorId}.\
-                8. The summary field must have the file name \"{name}\" at the beginning with brackets wrapped. But if the schedule is related to one of these three categories: holiday, semester break, no class, then do not include the file name.\
-                    Also, the summary must be 2 words directly related to the schedule.\
-                9. The description field must have the brief description of the schedule in 3 ~ 4 words. If a particular schedule has a description in the {file}, use that description. But if not, make the description on your own within 3 ~ 4 words. \
-                10. If the schedule is related to one of these categories: holiday, semester break, no class, then choose one of them and include it in the description. \
-                11. The output must be a valid JSON format only, without any additional words." 
+COMMON_PROMPT_RULES = """
+1. Exclude TA office hour, professor office hour, and assignment release date.
+2. Include quiz, midterm, final exam, project deadline, assignment submission deadline, no class, holiday, reading day, and any kind of break.
+3. Do not include any information other than the events listed in item 2.
+4. Each JSON object must contain exactly these keys:
+   summary, location, description, colorId, start, end
+5. The colorId field must be set to {color_id}.
+6. The summary field must begin with [{file_name}] for course-specific events.
+7. If the event is a holiday, semester break, or no class, do not include [{file_name}] in the summary.
+8. The summary must be short and directly related to the event, about 2 to 3 words.
+9. The description must be short, about 3 to 4 words.
+10. If the source contains a useful event description, use it. Otherwise create a short description yourself.
+11. If the description is related to holiday, semester break, or no class, include one of those labels in the description.
+12. The start field must be an object with only this format:
+    {{"date": "YYYY-MM-DD"}}
+13. The end field must be an object with only this format:
+    {{"date": "YYYY-MM-DD"}}
+14. For a one-day event, end.date must be one day after start.date so it is saved as an all-day Google Calendar event.
+15. If one event lasts for consecutive days, combine it into one JSON object and set end.date to the day after the final day.
+16. The output must be a valid JSON array only, with no extra text.
+"""
 
-# 2. 핵심 로직 함수들
 
 def integrated_file_reader(file_path, file_type, file_name, color):
     """파일을 읽어 Gemini AI를 통해 일정 JSON 텍스트 생성"""
     try:
         if file_type in [".jpg", ".jpeg", ".png"]:
             processed_file = Image.open(file_path)
-        elif file_type == ".pdf":
-            processed_file = genai.upload_file(path=file_path, display_name="syllabus PDF")
-        else:
-            raise ValueError(f"지원하지 않는 파일 형식입니다: {file_type}")
-            
+            prompt = build_direct_file_prompt(file_type, file_name, color)
+            response = model.generate_content([processed_file, prompt])
+            return response.text
+
+        if file_type == ".pdf":
+            return read_pdf_with_fallbacks(file_path, file_name, color)
+
+        raise ValueError(f"지원하지 않는 파일 형식입니다: {file_type}")
+
     except FileNotFoundError:
         return f"오류: '{file_path}' 경로에서 파일을 찾을 수 없습니다."
-        
-    file_prompt = PROMPT_TEMPLATE.format(file=file_type, name=file_name, colorId=color)
-    response = model.generate_content([processed_file, file_prompt])
+
+
+def build_schedule_prompt(intro, file_name, color, source_name, content=None):
+    prompt = (
+        f"{intro}\n\n"
+        + COMMON_PROMPT_RULES.format(file_name=file_name, color_id=color).strip()
+        + "\n\n"
+    )
+
+    if content is None:
+        prompt += (
+            "17. Use only the uploaded file content.\n"
+            "18. Ignore non-schedule content in the uploaded file.\n"
+            "19. Do not infer events that are not supported by the uploaded file."
+        )
+        return prompt
+
+    prompt += (
+        f"17. Use only the provided {source_name}.\n"
+        f"18. Ignore {source_name} content that is not related to schedules.\n"
+        f"19. Do not infer events that are not supported by the provided {source_name}.\n\n"
+        f"Provided {source_name}:\n"
+        f"{content}"
+    )
+    return prompt.strip()
+
+
+def build_direct_file_prompt(file_type, file_name, color):
+    return build_schedule_prompt(
+        intro=f"Summarize all the academic schedules from this {file_type} file and organize them into a JSON format in English.",
+        file_name=file_name,
+        color=color,
+        source_name="uploaded file content",
+    )
+
+
+def read_pdf_with_fallbacks(file_path, file_name, color):
+    table_text = extract_week_tables_as_markdown(file_path)
+    if table_text:
+        print("[PDF] 'week' 테이블 추출 성공. Gemini에 표 텍스트를 전달합니다.")
+        prompt = build_schedule_prompt(
+            intro="You are given schedule tables extracted from a syllabus PDF.",
+            file_name=file_name,
+            color=color,
+            source_name="table data",
+            content=table_text,
+        )
+        response = model.generate_content(prompt)
+        return response.text
+
+    print("[PDF] 'week' 테이블을 찾지 못했습니다. OCR을 시도합니다.")
+    ocr_text = extract_text_with_ocr(file_path)
+    if ocr_text:
+        prompt = build_schedule_prompt(
+            intro="You are given OCR text extracted from a syllabus PDF.",
+            file_name=file_name,
+            color=color,
+            source_name="OCR text",
+            content=ocr_text,
+        )
+        response = model.generate_content(prompt)
+        return response.text
+
+    print("[PDF] OCR도 실패했습니다. Gemini PDF 업로드 방식으로 되돌아갑니다.")
+    uploaded_pdf = genai.upload_file(path=file_path, display_name="syllabus PDF")
+    prompt = build_direct_file_prompt(".pdf", file_name, color)
+    response = model.generate_content([uploaded_pdf, prompt])
     return response.text
+
+
+def extract_week_tables_as_markdown(file_path):
+    markdown_tables = []
+
+    try:
+        document = pymupdf.open(file_path)
+    except Exception as exc:
+        print(f"[PDF] 문서를 여는 중 오류가 발생했습니다: {exc}")
+        return ""
+
+    try:
+        for page_index, page in enumerate(document, start=1):
+            try:
+                found_tables = page.find_tables()
+            except Exception as exc:
+                print(f"[PDF] 페이지 {page_index} 테이블 탐지 실패: {exc}")
+                continue
+
+            for table_index, table in enumerate(found_tables.tables, start=1):
+                try:
+                    markdown = (table.to_markdown(fill_empty=True) or "").strip()
+                except Exception as exc:
+                    print(f"[PDF] 페이지 {page_index} 테이블 {table_index} 변환 실패: {exc}")
+                    continue
+
+                if not markdown or "week" not in markdown.lower():
+                    continue
+
+                markdown_tables.append(
+                    f"[Page {page_index}][Table {table_index}]\n{markdown}"
+                )
+    finally:
+        document.close()
+
+    return "\n\n".join(markdown_tables)
+
+
+def extract_text_with_ocr(file_path):
+    ocr_pages = []
+
+    try:
+        document = pymupdf.open(file_path)
+    except Exception as exc:
+        print(f"[OCR] 문서를 여는 중 오류가 발생했습니다: {exc}")
+        return ""
+
+    try:
+        for page_index, page in enumerate(document, start=1):
+            try:
+                text_page = page.get_textpage_ocr(language="eng", dpi=300, full=True)
+                page_text = page.get_text("text", textpage=text_page, sort=True).strip()
+            except Exception as exc:
+                print(f"[OCR] 페이지 {page_index} OCR 실패: {exc}")
+                return ""
+
+            if page_text:
+                ocr_pages.append(f"[Page {page_index}]\n{page_text}")
+    finally:
+        document.close()
+
+    return "\n\n".join(ocr_pages)
+
 
 def parse_response_to_events(response_text):
     """AI의 텍스트 응답에서 JSON 배열을 추출하여 파싱"""
     if not response_text:
         raise ValueError("AI 응답이 비어있습니다.")
-    
-    start = response_text.find('[')
-    end = response_text.rfind(']')
+
+    start = response_text.find("[")
+    end = response_text.rfind("]")
     if start == -1 or end == -1 or end <= start:
         return []
 
-    candidate = response_text[start:end+1]
+    candidate = response_text[start : end + 1]
     data = json.loads(candidate)
-    
+
     return data if isinstance(data, list) else [data]
+
 
 def google_calendar(events_list, credentials):
     if not credentials:
         print("❌ 인증 정보가 없습니다. 일정을 등록할 수 없습니다.")
         return
-            
+
     try:
-        service = build('calendar', 'v3', credentials=credentials)
-        
+        service = build("calendar", "v3", credentials=credentials)
+
         for event_data in events_list:
             try:
                 if is_common_event(event_data):
-                    dedupe_key = make_common_event_id(event_data)  # (이제는 'id'가 아니라 'key'로 사용)
-                    event_data.setdefault("extendedProperties", {}) \
-                              .setdefault("private", {})["dedupeKey"] = dedupe_key
+                    dedupe_key = make_common_event_id(event_data)
+                    event_data.setdefault("extendedProperties", {}).setdefault(
+                        "private", {}
+                    )["dedupeKey"] = dedupe_key
 
-                    # all-day event: date만 있으니 timeMin/timeMax는 00:00:00Z 기준으로 검색
                     time_min = f"{event_data['start']['date']}T00:00:00Z"
                     time_max = f"{event_data['end']['date']}T00:00:00Z"
 
-                    found = service.events().list(
-                        calendarId="primary",
-                        privateExtendedProperty=f"dedupeKey={dedupe_key}",
-                        showDeleted=False,
-                        singleEvents=True,
-                        timeMin=time_min,
-                        timeMax=time_max,
-                        maxResults=1
-                    ).execute()
+                    found = (
+                        service.events()
+                        .list(
+                            calendarId="primary",
+                            privateExtendedProperty=f"dedupeKey={dedupe_key}",
+                            showDeleted=False,
+                            singleEvents=True,
+                            timeMin=time_min,
+                            timeMax=time_max,
+                            maxResults=1,
+                        )
+                        .execute()
+                    )
 
                     if found.get("items"):
                         print(f"중복 일정(이미 존재) 건너뜀: {event_data.get('summary')}")
                         continue
-                
+
                 service.events().insert(calendarId="primary", body=event_data).execute()
                 print(f"✅ 일정 등록 완료: {event_data.get('summary')}")
-                
+
             except HttpError as e:
                 if e.resp.status == 409:
                     print(f"중복 일정 건너뜀: {event_data.get('summary')}")
-                else: 
-                    error_body = e.content.decode("utf-8", errors="replace") if isinstance(e.content, (bytes, bytearray)) else str(e.content)
+                else:
+                    error_body = (
+                        e.content.decode("utf-8", errors="replace")
+                        if isinstance(e.content, (bytes, bytearray))
+                        else str(e.content)
+                    )
                     print(f"등록 오류: {event_data.get('summary')} - {e}")
                     print(f"[GCAL][ERROR] status={e.resp.status}")
-                    print(f"[GCAL][ERROR] payload={json.dumps(event_data, ensure_ascii=False)}")
+                    print(
+                        f"[GCAL][ERROR] payload={json.dumps(event_data, ensure_ascii=False)}"
+                    )
                     print(f"[GCAL][ERROR] response={error_body}")
-        
+
     except HttpError as error:
         print(f"구글 서비스 연결 오류: {error}")
+
 
 def is_common_event(event_data):
     """공통 일정(휴강, 방학 등)인지 확인하여 중복 방지 ID 부여 대상 선별"""
     description = event_data.get("description", "").lower()
-    keywords = ["holiday", "break", "no class"] 
+    keywords = ["holiday", "break", "no class"]
     return any(kw in description for kw in keywords)
+
 
 def make_common_event_id(event_data):
     """공통 일정에 대한 고유 해시 ID 생성 (중복 등록 방지)"""
