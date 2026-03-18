@@ -37,18 +37,22 @@ CLIENT_CONFIG = {
     }
 }
 
-SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/userinfo.email', 'openid'] 
+SCOPES = ['https://www.googleapis.com/auth/calendar.events', 'https://www.googleapis.com/auth/userinfo.email', 'openid']
 
-#login 엔드포인트: 구글 로그인 페이지로 리다이렉트  
+# PKCE code_verifier 임시 저장 (state → code_verifier)
+_code_verifiers = {}
+
+#login 엔드포인트: 구글 로그인 페이지로 리다이렉트
 @router.get("/login")
 def login():
     #사용자의 인증 과정을 관리하는 가이드
     flow = Flow.from_client_config(CLIENT_CONFIG, scopes=SCOPES)
     flow.redirect_uri = f"{BASE_URL}/api/auth/callback" #로그인 완료 후 돌아올 주소 설정
-    
+
     # access_type='offline'을 설정해야 refresh_token을 받을 수 있습니다.
     #구글의 진짜 로그인 페이지 URL
-    auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline') 
+    auth_url, state = flow.authorization_url(prompt='consent', access_type='offline')
+    _code_verifiers[state] = flow.code_verifier
     return {"url": auth_url}
 
 
@@ -60,11 +64,12 @@ def login():
 @router.get("/callback")
 async def callback(request: Request):
     code = request.query_params.get("code")
-    
+    state = request.query_params.get("state")
+
     flow = Flow.from_client_config(CLIENT_CONFIG, scopes=SCOPES)
     flow.redirect_uri = f"{BASE_URL}/api/auth/callback"
-    
-    flow.fetch_token(code=code)
+
+    flow.fetch_token(code=code, code_verifier=_code_verifiers.pop(state, None))
     credentials = flow.credentials
     
     # 2. 구글에서 사용자 이메일 정보 가져오기
