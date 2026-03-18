@@ -30,20 +30,20 @@ jobs:
       - name: Build and push mysql
         run: |
           docker build -t $ECR_REGISTRY/day-one-prod/mysql:latest \
-            -f Day_One/Dockerfile.mysql Day_One/
+            -f ./Dockerfile.mysql ./
           docker push $ECR_REGISTRY/day-one-prod/mysql:latest
 
       - name: Build and push backend
         run: |
           docker build -t $ECR_REGISTRY/day-one-prod/backend:latest \
-            -f Day_One/Dockerfile.backend Day_One/
+            -f ./Dockerfile.backend ./
           docker push $ECR_REGISTRY/day-one-prod/backend:latest
 
       - name: Build and push frontend
         run: |
           docker build -t $ECR_REGISTRY/day-one-prod/frontend:latest \
             --build-arg NGINX_CONF=nginx.prod.conf \
-            -f Day_One/Dockerfile.frontend Day_One/
+            -f ./Dockerfile.frontend ./
           docker push $ECR_REGISTRY/day-one-prod/frontend:latest
 
       - name: Deploy to ECS
