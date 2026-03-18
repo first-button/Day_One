@@ -71,11 +71,9 @@ jobs:
             containerDefinitions: .containerDefinitions,
             volumes: .volumes,
             requiresCompatibilities: .requiresCompatibilities,
-            cpu: .cpu,
-            memory: .memory,
             executionRoleArn: .executionRoleArn,
             taskRoleArn: .taskRoleArn
-          }' > /tmp/taskdef.json
+          } | with_entries(select(.value != null))' > /tmp/taskdef.json
 
           NEW_ARN=$(aws ecs register-task-definition --cli-input-json file:///tmp/taskdef.json --query taskDefinition.taskDefinitionArn --output text)
 
