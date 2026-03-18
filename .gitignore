@@ -7,5 +7,6 @@ firstbutton/src/backend/**/__pycache__/
 firstbutton/src/backend/**/*.pyc
 
 # Secrets
-firstbutton/src/backend/demo/secret/
+firstbutton/src/backend/demo/secret/*
+firstbutton/src/backend/demo/.env
 firstbutton/src/backend/demo/codes/.env
