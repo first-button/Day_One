@@ -53,6 +53,9 @@ SCOPES = [
     "openid",
 ]
 
+# PKCE code_verifier 임시 저장 (state → code_verifier)
+_code_verifiers = {}
+
 
 def build_google_flow():
     flow = Flow.from_client_config(CLIENT_CONFIG, scopes=SCOPES)
@@ -63,18 +66,20 @@ def build_google_flow():
 @router.get("/login")
 def login():
     flow = build_google_flow()
-    auth_url, _ = flow.authorization_url(prompt="consent", access_type="offline")
+    auth_url, state = flow.authorization_url(prompt="consent", access_type="offline")
+    _code_verifiers[state] = flow.code_verifier
     return {"url": auth_url}
 
 
 @router.get("/callback")
 async def callback(request: Request):
     code = request.query_params.get("code")
+    state = request.query_params.get("state")
     if not code:
         raise HTTPException(status_code=400, detail="Google OAuth code가 없습니다.")
 
     flow = build_google_flow()
-    flow.fetch_token(code=code)
+    flow.fetch_token(code=code, code_verifier=_code_verifiers.pop(state, None))
     credentials = flow.credentials
 
     user_info_service = build("oauth2", "v2", credentials=credentials)
