@@ -105,13 +105,23 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
   };
 
   // 4. "등록하기" 버튼 클릭 시 (백엔드 전송)
+  // [Celery] 태스크 상태 polling
+  const pollTaskStatus = async (taskId: string): Promise<{ status: string; count?: number; message?: string }> => {
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      const res = await fetch(`/api/schedule/upload/status/${taskId}`, {
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (data.status !== "processing") return data;
+    }
+  };
+
+  // [Celery] 비동기 업로드 — 즉시 task_id 받고 polling
   const handleFinalUpload = async () => {
     if (selectedFiles.length === 0) return;
 
     try {
-      alert(`${selectedFiles.length}개의 파일을 처리합니다...`);
-      
-      // 여러 파일을 순서대로 전송 (또는 백엔드가 다중 파일을 지원하면 한 번에 전송)
       for (const item of selectedFiles) {
         const formData = new FormData();
         formData.append("uploaded_file", item.file);
@@ -122,7 +132,7 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
           body: formData,
           credentials: "include",
         });
-        
+
         if (response.status === 401) {
           alert("로그인이 필요합니다. 먼저 로그인해주세요!");
           return;
@@ -130,6 +140,13 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
 
         if (!response.ok) {
           throw new Error(`${item.file.name} 처리 실패`);
+        }
+
+        const { task_id } = await response.json();
+        const result = await pollTaskStatus(task_id);
+
+        if (result.status === "error") {
+          throw new Error(result.message || `${item.file.name} 처리 실패`);
         }
       }
 
@@ -142,6 +159,44 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
       alert("일부 파일 처리에 실패했습니다.");
     }
   };
+
+  // [기존] 동기 업로드 — Celery 도입 전 코드
+  // const handleFinalUpload = async () => {
+  //   if (selectedFiles.length === 0) return;
+  //
+  //   try {
+  //     alert(`${selectedFiles.length}개의 파일을 처리합니다...`);
+  //
+  //     for (const item of selectedFiles) {
+  //       const formData = new FormData();
+  //       formData.append("uploaded_file", item.file);
+  //       formData.append("event_color", item.color);
+  //
+  //       const response = await fetch("/api/schedule/upload", {
+  //         method: "POST",
+  //         body: formData,
+  //         credentials: "include",
+  //       });
+  //
+  //       if (response.status === 401) {
+  //         alert("로그인이 필요합니다. 먼저 로그인해주세요!");
+  //         return;
+  //       }
+  //
+  //       if (!response.ok) {
+  //         throw new Error(`${item.file.name} 처리 실패`);
+  //       }
+  //     }
+  //
+  //     alert("모든 일정이 성공적으로 등록되었습니다!");
+  //     setIsModalOpen(false);
+  //     setSelectedFiles([]);
+  //
+  //   } catch (error) {
+  //     console.error(error);
+  //     alert("일부 파일 처리에 실패했습니다.");
+  //   }
+  // };
 
   const handleUploadClick = () => {
     if (!isLoggedIn) {
