@@ -3,12 +3,18 @@ import mysql.connector
 from celery_app import celery
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
-from prometheus_client import Histogram, Counter, Gauge
+from prometheus_client import Histogram, Counter, Gauge, start_http_server
 
 from startButton import integrated_file_reader, parse_response_to_events, google_calendar
 from config import load_env
 
 load_env()
+
+# Celery worker 프로세스에서 메트릭 서빙 (uvicorn과 별도 포트)
+try:
+    start_http_server(9092)
+except OSError:
+    pass  # 이미 실행 중이면 무시
 
 # Prometheus 메트릭 (schedule.py와 동일한 메트릭 재사용)
 STEP_DURATION = Histogram(
