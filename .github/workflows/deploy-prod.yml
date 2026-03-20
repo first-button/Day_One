@@ -83,3 +83,9 @@ jobs:
             --force-new-deployment --no-cli-pager > /dev/null
 
           echo "DEPLOY OK: $IMAGE_TAG"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
