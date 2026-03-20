@@ -11,3 +11,5 @@ python-multipart
 boto3
 prometheus-fastapi-instrumentator
 prometheus-client
+celery[redis]
+redis
