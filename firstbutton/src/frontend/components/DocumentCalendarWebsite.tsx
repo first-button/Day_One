@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { Calendar, FileText, Image, Clock, CheckCircle, ArrowRight, Zap, HelpCircle, LogIn, X, Trash2 } from "lucide-react";
+import { Calendar, FileText, Image, CheckCircle, ArrowRight, Zap, HelpCircle, LogIn, X, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { QuickGuide } from "./QuickGuide";
 import { AnimatePresence, motion } from "motion/react"; // 애니메이션 효과
-import { toast } from "sonner";
 import calendarImage from "../assets/calendar.jpg";
 import syllabusImage from "../assets/syllabus.jpg";
 import photoTakingImage from "../assets/photo-taking.jpg";
@@ -79,7 +78,6 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
   const [showQuickGuide, setShowQuickGuide] = useState(false);
   const t = translations[language];
 

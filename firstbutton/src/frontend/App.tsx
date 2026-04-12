@@ -1,17 +1,11 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { DocumentCalendarWebsite } from "./components/DocumentCalendarWebsite";
-import { Button } from "./components/ui/button";
-import { HelpCircle } from "lucide-react";
 import { AboutUs } from "./components/AboutUs";
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<'home' | 'about'>('home');
   const [language, setLanguage] = useState<'ko' | 'en'>('ko');
-
-  const navigateToHome = () => {
-    setCurrentPage('home');
-  };
 
   if (currentPage === 'about') {
     return (
