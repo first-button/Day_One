@@ -1,17 +1,71 @@
 import { useState, useRef, useEffect } from "react";
-import { Calendar, FileText, Image, CheckCircle, ArrowRight, X, Trash2, Zap } from "lucide-react";
+import { Calendar, FileText, Image, Clock, CheckCircle, ArrowRight, Zap, HelpCircle, LogIn, X, Trash2 } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
+import { QuickGuide } from "./QuickGuide";
+import { AnimatePresence, motion } from "motion/react"; // 애니메이션 효과
+import { toast } from "sonner";
 import calendarImage from "../assets/calendar.jpg";
 import syllabusImage from "../assets/syllabus.jpg";
 import photoTakingImage from "../assets/photo-taking.jpg";
-import { AnimatePresence, motion } from "motion/react"; // 애니메이션 효과
+
 
 interface DocumentCalendarWebsiteProps {
-  highlightElement?: string;
   onNavigateToGuide?: () => void;
+  language: 'ko' | 'en';
+  onLanguageChange?: (lang: 'ko' | 'en') => void;
+  onNavigateToAbout?: () => void;
 }
+
+const translations = {
+  ko: {
+    title: "Day One",
+    tagline: "Syllabus, Simplified",
+    description: "PDF, Word, 이미지 속 일정을 AI가 자동으로 인식해서 Google 캘린더에 바로 추가해드립니다.",
+    uploadButton: "파일 업로드하기",
+    freeTrial: "공짜로 사용가능",
+    noInstall: "설치 불필요",
+    featuresTitle: "주요 기능",
+    featuresSubtitle: "어떤 형태의 문서든 AI가 자동으로 일정을 찾아 캘린더에 추가합니다",
+    pdfRecognition: "PDF 문서 인식",
+    pdfDescription: "수업 계획서, 강의 일정표 등 PDF 속 모든 일정을 자동으로 추출합니다.",
+    imageRecognition: "이미지 텍스트 인식",
+    imageDescription: "사진으로 찍은 일정표나 화이트보드의 일정도 정확하게 인식합니다.",
+    calendarSync: "자동 캘린더 연동",
+    calendarDescription: "인식된 일정을 Google 캘린더에 자동으로 추가하고 알림까지 설정합니다.",
+    ctaTitle: "지금 바로 Day One을 시작하세요",
+    ctaSubtitle: "복잡한 일정 관리, 클릭 한번으로 끝내세요",
+    aboutUs: "About Us",
+    noCreditCard: "신용카드 불필요 • 언제든 취소 가능",
+    upgradeToPremium: "프리미엄으로 업그레이드",
+    login: "로그인",
+    aiDisclaimer: "AI가 자동으로 일정을 인식하므로 중요한 일정은 반드시 확인해 주세요.",
+  },
+  en: {
+    title: "Day One",
+    tagline: "Syllabus, Simplified",
+    description: "AI automatically recognizes schedules in PDFs, Word files, and images, and adds them directly to Google Calendar.",
+    uploadButton: "Upload File",
+    freeTrial: "Free to Use",
+    noInstall: "No Installation Required",
+    featuresTitle: "Key Features",
+    featuresSubtitle: "AI automatically finds schedules in any document and adds them to your calendar",
+    pdfRecognition: "PDF Document Recognition",
+    pdfDescription: "Automatically extracts all schedules from course plans, lecture timetables, and more.",
+    imageRecognition: "Image Text Recognition",
+    imageDescription: "Accurately recognizes schedules from photographed timetables and whiteboards.",
+    calendarSync: "Automatic Calendar Sync",
+    calendarDescription: "Automatically adds recognized schedules to Google Calendar and sets reminders.",
+    ctaTitle: "Start Using Day One Now",
+    ctaSubtitle: "Manage complex schedules with just one click",
+    aboutUs: "About Us",
+    noCreditCard: "No credit card required • Cancel anytime",
+    upgradeToPremium: "Upgrade to Premium",
+    login: "Login",
+    aiDisclaimer: "AI automatically recognizes schedules. Please verify important events.",
+  }
+};
 
 // 파일 정보 타입 정의
 interface SelectedFile {
@@ -19,13 +73,15 @@ interface SelectedFile {
   color: string;
 }
 
-export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWebsiteProps) {
+export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigateToAbout}: DocumentCalendarWebsiteProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState("");
-
+  const [isUploading, setIsUploading] = useState(false);
+  const [showQuickGuide, setShowQuickGuide] = useState(false);
+  const t = translations[language];
 
   // 브라우저 쿠키에 user_email이 있는지 확인 (HttpOnly가 아닐 경우)
   // 가장 확실한 방법은 백엔드에 '상태 확인 API'를 하나 만드는 것이지만, 
@@ -37,7 +93,7 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
 
     if (emailCookie) {
       // 쿠키 값 추출 및 디코딩
-      const email = decodeURIComponent(emailCookie.split('=')[1]);
+      const email = decodeURIComponent(emailCookie.split('=')[1]).replace(/"/g, '');
       const id = email.split('@')[0];
       
       setUserName(id);
@@ -210,50 +266,72 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
   return (
     <div className="min-h-screen bg-background relative">
       {/* Header */}
-      <header className={`border-b px-6 py-4 ${highlightElement === 'header' ? 'relative z-10' : ''}`} data-tutorial="header">
+      <header className="border-b px-6 py-4 sticky top-0 z-50" style={{ backgroundColor: 'white' }}>
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center space-x-2">
             <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
-              <span className="text-white font-bold text-sm">W</span>
+              <div className="w-3 h-3 bg-white rounded-full" />
             </div>
-            <h1 className="text-2xl font-bold">첫단추</h1>
+            <h1 className="text-2xl font-bold">{t.title}</h1>
           </div>
-          
-          <div className="flex items-center">
+
+          <div className="flex items-center space-x-6">
+            {/* Login / User Greeting */}
             {isLoggedIn ? (
-            /* 로그인 상태일 때: 인사말 표시 */
-            <div className="flex items-center space-x-4">
-              <span className="text-sm font-medium text-slate-700">
-                <strong className="text-orange-600">{userName}</strong>님, 안녕하세요!
-              </span>
-              {/* 필요하다면 로그아웃 버튼을 작게 추가할 수 있습니다 */}
-              <Button 
-                  className="bg-black text-white hover:bg-gray-800 px-4 h-9 transition-colors font-medium rounded-md text-xs"
+              <div className="flex items-center">
+                <span className="text-sm font-medium text-slate-700" style={{ marginRight: '16px' }}>
+                  <strong className="text-orange-600">{userName}</strong>님, 안녕하세요!
+                </span>
+                <Button
+                  variant="outline"
+                  className="gap-2"
+                  style={{ marginRight: '16px' }}
                   onClick={() => {
                     document.cookie = "user_email=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
                     window.location.reload();
                   }}
                 >
-                Sign Out
+                  Sign Out
+                </Button>
+              </div>
+            ) : (
+              <Button
+                variant="outline"
+                className="gap-2"
+                style={{ marginRight: '16px' }}
+                onClick={handleLogin}
+              >
+                <LogIn className="h-4 w-4" />
+                {t.login}
+              </Button>
+            )}
+
+            {/* Language Selector */}
+            <div className="flex items-center space-x-1 bg-muted rounded-lg" style={{ padding: '6px' }}>
+              <Button
+                variant={language === 'ko' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => onLanguageChange?.('ko')}
+                className="h-8 px-3"
+              >
+                한국어
+              </Button>
+              <Button
+                variant={language === 'en' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => onLanguageChange?.('en')}
+                className="h-8 px-3"
+              >
+                English
               </Button>
             </div>
-          ) : (
-            /* 로그아웃 상태일 때: 시작하기 버튼 표시 */
-            <Button 
-              className="bg-black text-white hover:bg-gray-800 px-6 h-10 transition-colors font-medium rounded-md"
-              onClick={handleLogin}
-            >
-              시작하기
-            </Button>
-          )}
           </div>
         </div>
       </header>
 
       {/* Hero Section */}
       <section 
-        className={`px-6 py-16 ${highlightElement === 'hero' ? 'relative z-10' : ''}`}
-        data-tutorial="hero"
+        className="px-6 py-16"
       >
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-12 items-center">
@@ -261,15 +339,13 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
               <div className="space-y-4">
                 <Badge className="bg-orange-100 text-orange-800 border-orange-200">
                   <Zap className="w-3 h-3 mr-1" />
-                  AI 문서 인식
+                  AI {language === 'ko' ? '문서 인식' : 'Document Recognition'}
                 </Badge>
                 <h1 className="text-4xl lg:text-5xl font-bold leading-tight">
-                  복잡한 수업 일정,<br />
-                  이제 세 줄어 넘 봐.
+                  {t.tagline}
                 </h1>
                 <p className="text-xl text-muted-foreground">
-                  PDF, Word, 이미지 속 일정을 AI가 자동으로 인식해서<br />
-                  Google 캘린더에 바로 추가해드립니다.
+                  {t.description}
                 </p>
               </div>
               
@@ -283,13 +359,13 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
                   multiple // 여러 파일 선택 가능하게 변경
                 />
 
-                <Button 
-                  size="lg" 
-                  className="bg-orange-500 hover:bg-orange-600" 
+                <Button
+                  size="lg"
+                  className="bg-orange-500 hover:bg-orange-600"
                   data-tutorial="start"
                   onClick={handleUploadClick}
                 >
-                  파일 업로드하기
+                  {t.uploadButton}
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
@@ -297,11 +373,11 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
               <div className="flex items-center space-x-8 text-sm text-muted-foreground">
                 <div className="flex items-center space-x-2">
                   <CheckCircle className="w-4 h-4 text-green-500" />
-                  <span>공짜로 사용가능</span>
+                  <span>{t.freeTrial}</span>
                 </div>
                 <div className="flex items-center space-x-2">
                   <CheckCircle className="w-4 h-4 text-green-500" />
-                  <span>설치 불필요</span>
+                  <span>{t.noInstall}</span>
                 </div>
               </div>
             </div>
@@ -313,9 +389,6 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
                   alt="문서 및 캘린더"
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute top-4 right-4 w-16 h-16 bg-orange-500 rounded-full flex items-center justify-center shadow-lg">
-                  <span className="text-white font-bold text-xl">W</span>
-                </div>
               </div>
             </div>
           </div>
@@ -323,30 +396,27 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
       </section>
 
       {/* Features Section */}
-      <section className={`px-6 py-16 bg-muted/30 ${highlightElement === 'features' ? 'relative z-10' : ''}`} data-tutorial="features">
+      <section className="px-6 py-16 bg-muted/30">
         <div className="max-w-7xl mx-auto">
-           {/* (기존 Features 내용은 동일하므로 생략하지 않고 그대로 둠 - 위쪽 코드 참고) */}
            <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold mb-4">복잡한 수업 일정, 이제 세 줄어 넘 봐</h2>
+            <h2 className="text-3xl font-bold mb-4">{t.featuresTitle}</h2>
             <p className="text-lg text-muted-foreground">
-              어떤 형태의 문서든 AI가 자동으로 일정을 찾아 캘린더에 추가합니다
+              {t.featuresSubtitle}
             </p>
           </div>
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-             {/* ... Card 컴포넌트들 (기존과 동일) ... */}
-              <Card className="relative overflow-hidden">
+            <Card className="relative overflow-hidden">
               <CardHeader>
                 <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
                   <FileText className="w-6 h-6 text-blue-600" />
                 </div>
-                <CardTitle>PDF 문서 인식</CardTitle>
+                <CardTitle>{t.pdfRecognition}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground mb-4">
-                  수업 계획서, 강의 일정표 등 PDF 속 모든 일정을 자동으로 추출합니다.
+                  {t.pdfDescription}
                 </p>
-                 <div className="aspect-video bg-muted rounded-lg overflow-hidden">
-                   {/* 이미지 태그 생략 가능하지만 구조 유지 */}
+                <div className="aspect-video bg-muted rounded-lg overflow-hidden">
                   <img
                     src={syllabusImage}
                     alt="Syllabus preview"
@@ -355,18 +425,18 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
                 </div>
               </CardContent>
             </Card>
-             <Card className="relative overflow-hidden">
+            <Card className="relative overflow-hidden">
               <CardHeader>
                 <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center mb-4">
                   <Image className="w-6 h-6 text-green-600" />
                 </div>
-                <CardTitle>이미지 텍스트 인식</CardTitle>
+                <CardTitle>{t.imageRecognition}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground mb-4">
-                  사진으로 찍은 일정표나 화이트보드의 일정도 정확하게 인식합니다.
+                  {t.imageDescription}
                 </p>
-                 <div className="aspect-video bg-muted rounded-lg overflow-hidden">
+                <div className="aspect-video bg-muted rounded-lg overflow-hidden">
                   <img src={photoTakingImage} alt="Photo taking preview" className="w-full h-full object-cover"/>
                 </div>
               </CardContent>
@@ -376,13 +446,13 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
                 <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center mb-4">
                   <Calendar className="w-6 h-6 text-purple-600" />
                 </div>
-                <CardTitle>자동 캘린더 연동</CardTitle>
+                <CardTitle>{t.calendarSync}</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-muted-foreground mb-4">
-                  인식된 일정을 Google 캘린더에 자동으로 추가하고 알림까지 설정합니다.
+                  {t.calendarDescription}
                 </p>
-                 <div className="aspect-video bg-white rounded-lg overflow-hidden flex items-center justify-center p-4">
+                <div className="aspect-video bg-white rounded-lg overflow-hidden flex items-center justify-center p-4">
                   <img src={calendarImage} alt="Calendar" className="w-full h-full object-contain" />
                 </div>
               </CardContent>
@@ -390,6 +460,47 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
           </div>
         </div>
       </section>
+
+      {/* CTA Section */}
+      <section className="px-6 py-16 bg-gradient-to-br from-orange-500 to-red-500">
+        <div className="max-w-4xl mx-auto text-center text-white">
+          <h2 className="text-4xl font-bold mb-4">
+            {t.ctaTitle}
+          </h2>
+          <p className="text-xl mb-8 text-white/90">
+            {t.ctaSubtitle}
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Button
+              variant="secondary"
+              size="lg"
+              style={{ backgroundColor: 'white', color: '#f97316', fontWeight: 600 }}
+            >
+              {t.upgradeToPremium}
+            </Button>
+            <Button
+              variant="secondary"
+              size="lg"
+              style={{ backgroundColor: 'white', color: '#f97316', fontWeight: 600 }}
+              onClick={onNavigateToAbout}
+            >
+              {t.aboutUs}
+            </Button>
+          </div>
+          <p style={{ marginTop: '40px' }} className="text-sm text-white/75">
+            {t.noCreditCard}
+          </p>
+        </div>
+      </section>
+
+      {/* AI Disclaimer Footer */}
+      <footer className="px-6 py-4 border-t bg-muted/30">
+        <div className="max-w-7xl mx-auto text-center">
+          <p className="text-xs text-muted-foreground">
+            {t.aiDisclaimer}
+          </p>
+        </div>
+      </footer>
 
       {/* 5. 파일 선택 확인 모달 (AnimatePresence로 부드럽게) */}
       <AnimatePresence>
@@ -474,6 +585,50 @@ export function DocumentCalendarWebsite({ highlightElement }: DocumentCalendarWe
           </div>
         )}
       </AnimatePresence>
+
+      {/* Quick Guide Modal */}
+      {showQuickGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setShowQuickGuide(false)}
+          />
+          <div className="relative bg-background rounded-lg border shadow-lg w-full max-w-2xl mx-4 p-6 max-h-[90vh] overflow-y-auto">
+            <button
+              onClick={() => setShowQuickGuide(false)}
+              className="absolute top-4 right-4 opacity-70 hover:opacity-100 transition-opacity"
+            >
+              <X className="w-4 h-4" />
+              <span className="sr-only">Close</span>
+            </button>
+            <div className="flex flex-col gap-2 mb-4">
+              <h2 className="text-lg font-semibold flex items-center space-x-2">
+                <HelpCircle className="w-5 h-5 text-blue-500" />
+                <span>{language === 'ko' ? '빠른 가이드' : 'Quick Guide'}</span>
+              </h2>
+              <p className="text-muted-foreground text-sm">
+                {language === 'ko'
+                  ? 'Day One을 사용하는 방법을 배워보세요!'
+                  : 'Learn how to use Day One!'}
+              </p>
+            </div>
+            <div className="space-y-4 py-4">
+              <QuickGuide language={language} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Quick Guide Button */}
+      <div className="fixed bottom-6 left-6 flex flex-col gap-3 z-40">
+        <Button
+          size="lg"
+          onClick={() => setShowQuickGuide(true)}
+          className="rounded-full shadow-lg hover:shadow-xl transition-shadow bg-blue-500 hover:bg-blue-600"
+        >
+          <HelpCircle className="h-5 w-5" />
+        </Button>
+      </div>
     </div>
   );
 }
