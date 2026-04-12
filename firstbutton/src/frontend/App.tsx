@@ -1,30 +1,31 @@
 import { useState } from "react";
 import { motion } from "motion/react";
 import { DocumentCalendarWebsite } from "./components/DocumentCalendarWebsite";
-import { FeaturesGuide } from "./components/FeaturesGuide";
 import { Button } from "./components/ui/button";
 import { HelpCircle } from "lucide-react";
+import { AboutUs } from "./components/AboutUs";
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'guide'>('home');
-
-  const navigateToGuide = () => {
-    setCurrentPage('guide');
-  };
+  const [currentPage, setCurrentPage] = useState<'home' | 'about'>('home');
+  const [language, setLanguage] = useState<'ko' | 'en'>('ko');
 
   const navigateToHome = () => {
     setCurrentPage('home');
   };
 
-  // 이용법 가이드 페이지 전환 로직
-  if (currentPage === 'guide') {
-    return <FeaturesGuide onBack={navigateToHome} />;
+  if (currentPage === 'about') {
+    return (
+      <AboutUs 
+        language={language}
+        onBack={() => setCurrentPage('home')}
+      />
+    );
   }
 
   return (
     <div className="relative min-h-screen">
       {/* 메인 웹사이트: 접속 시 바로 노출되도록 변경 */}
-      <DocumentCalendarWebsite onNavigateToGuide={navigateToGuide} />
+      <DocumentCalendarWebsite language={language} onLanguageChange={setLanguage} onNavigateToAbout={() => setCurrentPage('about')} />
 
       {/* Floating Help Button: 애니메이션 효과 유지 */}
       <motion.div
@@ -33,14 +34,6 @@ export default function App() {
         transition={{ delay: 0.5, duration: 0.3 }}
         className="fixed bottom-6 right-6 z-40"
       >
-        <Button
-          onClick={navigateToGuide}
-          size="lg"
-          className="rounded-full shadow-lg hover:shadow-xl transition-shadow flex items-center space-x-2"
-        >
-          <HelpCircle className="h-5 w-5" />
-          <span>이용법 보기</span>
-        </Button>
       </motion.div>
 
       {/* Background Animation: 프로젝트의 미적 요소를 위해 유지 */}
