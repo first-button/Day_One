@@ -5,7 +5,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from prometheus_client import Histogram, Counter, Gauge, start_http_server
 
-from startButton import integrated_file_reader, parse_response_to_events, google_calendar
+from startButton import integrated_file_reader, parse_response_to_events, google_calendar, scrape_webpage_schedule
 from config import load_env
 
 load_env()
@@ -121,3 +121,44 @@ def process_upload(self, save_path, file_extension, base_name, event_color, user
         CONCURRENT_UPLOADS.dec()
         if os.path.exists(save_path):
             os.remove(save_path)
+
+
+@celery.task(bind=True, max_retries=2)
+def process_scrape(self, url, file_name, event_color, user_email):
+    CONCURRENT_UPLOADS.inc()
+    try:
+        # 1. 웹 스크래핑 + AI 분석
+        with STEP_DURATION.labels(step='web_scrape_ai').time():
+            ai_response = scrape_webpage_schedule(
+                url=url,
+                file_name=file_name,
+                color=event_color,
+            )
+
+        if ai_response.startswith("Error:"):
+            return {"status": "error", "message": ai_response}
+
+        # 2. 이벤트 파싱
+        with STEP_DURATION.labels(step='parse_events').time():
+            events_list = parse_response_to_events(ai_response)
+
+        if not events_list:
+            return {"status": "error", "message": "일정을 찾지 못했습니다."}
+
+        # 3. Google Calendar 등록
+        creds = get_valid_creds(user_email)
+        if not creds:
+            return {"status": "error", "message": "인증 정보를 찾을 수 없습니다. 다시 로그인해 주세요."}
+
+        with STEP_DURATION.labels(step='calendar_register').time():
+            google_calendar(events_list, creds)
+
+        return {"status": "success", "count": len(events_list), "user": user_email}
+
+    except Exception as e:
+        UPLOAD_ERRORS.labels(error_type=type(e).__name__).inc()
+        print(f"❌ Error scraping {url}: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+    finally:
+        CONCURRENT_UPLOADS.dec()

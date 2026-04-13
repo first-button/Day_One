@@ -2,13 +2,19 @@
 import os
 import shutil
 import uuid
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Cookie
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Cookie, Body
 from celery.result import AsyncResult
 from prometheus_client import Histogram
+from pydantic import BaseModel
 from config import load_env
 
-from tasks import process_upload
+from tasks import process_upload, process_scrape
 from celery_app import celery
+
+
+class ScrapeRequest(BaseModel):
+    url: str
+    color: str = "1"
 
 # --- Prometheus 메트릭 정의 ---
 UPLOAD_FILE_SIZE = Histogram(
@@ -49,6 +55,27 @@ async def upload_schedule(
     # 4. Celery 태스크 큐에 넣고 즉시 반환
     task = process_upload.delay(save_path, file_extension, base_name, event_color, user_email)
 
+    return {"status": "processing", "task_id": task.id}
+
+
+@router.post("/scrape")
+async def scrape_schedule(
+    body: ScrapeRequest,
+    user_email: str = Cookie(None)
+):
+    if not user_email:
+        raise HTTPException(status_code=401, detail="로그인이 필요한 서비스입니다.")
+
+    url = body.url.strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL이 비어있습니다.")
+
+    # URL에서 과목명 추출 (예: ~cse327 → cse327)
+    import re
+    match = re.search(r'~([a-zA-Z]{3}\d{3})', url)
+    file_name = match.group(1).upper() if match else "webpage"
+
+    task = process_scrape.delay(url, file_name, body.color, user_email)
     return {"status": "processing", "task_id": task.id}
 
 
