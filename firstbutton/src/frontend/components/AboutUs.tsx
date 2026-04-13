@@ -5,6 +5,7 @@ import { Card, CardContent } from "./ui/card";
 interface AboutUsProps {
   language: 'ko' | 'en';
   onBack: () => void;
+  onLanguageChange?: (lang: 'ko' | 'en') => void;
 }
 
 const teamMembers = [
@@ -19,25 +20,25 @@ const teamMembers = [
   },
   {
     name: "전호찬",
-    nameEn: "Hochan Jeon",
+    nameEn: "Hochan Jun",
     role: "개발자",
-    roleEn: "Developer",
+    roleEn: "Full Stack Developer",
     description: "효율적인 코드로 최고의 성능을 구현합니다.",
     descriptionEn: "Implements optimal performance with efficient code.",
     avatar: "💻",
   },
   {
     name: "전상현",
-    nameEn: "Sanghyun Jeon",
+    nameEn: "Sanghyun Jun",
     role: "개발자",
-    roleEn: "Developer",
-    description: "안정적이고 확장 가능한 시스템을 만듭니다.",
-    descriptionEn: "Builds stable and scalable systems.",
+    roleEn: "CI/CD",
+    description: "안정적이고 확장 가능한 시스템 환경을 만듭니다.",
+    descriptionEn: "Builds stable and scalable system environments.",
     avatar: "⚡",
   },
 ];
 
-export function AboutUs({ language, onBack }: AboutUsProps) {
+export function AboutUs({ language, onBack, onLanguageChange }: AboutUsProps) {
   const t = {
     ko: {
       title: "About Us",
@@ -68,15 +69,36 @@ export function AboutUs({ language, onBack }: AboutUsProps) {
       {/* Header */}
       <header className="border-b px-6 py-4 sticky top-0 z-50" style={{ backgroundColor: 'white' }}>
         <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <Button variant="ghost" onClick={onBack} className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            {content.backToHome}
-          </Button>
           <div className="flex items-center space-x-2">
             <div className="w-8 h-8 bg-orange-500 rounded-full flex items-center justify-center">
               <div className="w-3 h-3 bg-white rounded-full" />
             </div>
             <h1 className="text-2xl font-bold">Day One</h1>
+          </div>
+
+          <div className="flex items-center">
+            <Button variant="ghost" onClick={onBack} className="gap-2" style={{ marginRight: '16px' }}>
+              <ArrowLeft className="h-4 w-4" />
+              {content.backToHome}
+            </Button>
+            <div className="flex items-center space-x-1 bg-muted rounded-lg" style={{ padding: '6px' }}>
+              <Button
+                variant={language === 'ko' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => onLanguageChange?.('ko')}
+                className="h-8 px-3"
+              >
+                한국어
+              </Button>
+              <Button
+                variant={language === 'en' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => onLanguageChange?.('en')}
+                className="h-8 px-3"
+              >
+                English
+              </Button>
+            </div>
           </div>
         </div>
       </header>

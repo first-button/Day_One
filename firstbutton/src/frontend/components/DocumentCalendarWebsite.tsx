@@ -754,13 +754,12 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
             className="absolute inset-0 bg-black/50"
             onClick={() => setShowQuickGuide(false)}
           />
-          <div className="relative bg-background rounded-lg border shadow-lg w-full max-w-2xl mx-4 p-6 max-h-[90vh] overflow-y-auto">
+          <div className="relative bg-background rounded-lg border shadow-lg mx-4 p-6 max-h-[90vh] overflow-y-auto" style={{ width: '650px' }}>
             <button
               onClick={() => setShowQuickGuide(false)}
               className="absolute top-4 right-4 opacity-70 hover:opacity-100 transition-opacity"
             >
-              <X className="w-4 h-4" />
-              <span className="sr-only">Close</span>
+              <X className="w-6 h-6" />
             </button>
             <div className="flex flex-col gap-2 mb-4">
               <h2 className="text-lg font-semibold flex items-center space-x-2">
@@ -781,13 +780,14 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
       )}
 
       {/* Floating Quick Guide Button */}
-      <div className="fixed bottom-6 left-6 flex flex-col gap-3 z-40">
+      <div className="fixed bottom-6 flex flex-col gap-3 z-40" style={{ left: '24px' }}>
         <Button
-          size="lg"
           onClick={() => setShowQuickGuide(true)}
           className="rounded-full shadow-lg hover:shadow-xl transition-shadow bg-blue-500 hover:bg-blue-600"
+          style={{ height: '56px', padding: '0 20px' }}
         >
-          <HelpCircle className="h-5 w-5" />
+          <span className="text-sm font-medium">{language === 'ko' ? '이용법 보기' : 'How to Use'}</span>
+          <HelpCircle className="h-6 w-6 ml-2" />
         </Button>
       </div>
     </div>
