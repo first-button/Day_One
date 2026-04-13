@@ -281,13 +281,14 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
         }
 
         if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData.detail || `${item.url} 처리 실패`);
+          throw new Error(`${item.url} 처리 실패`);
         }
 
-        const data = await response.json();
-        if (data.status === "error") {
-          throw new Error(data.message || `${item.url} 일정 추출 실패`);
+        const { task_id } = await response.json();
+        const result = await pollTaskStatus(task_id);
+
+        if (result.status === "error") {
+          throw new Error(result.message || `${item.url} 일정 추출 실패`);
         }
       }
 

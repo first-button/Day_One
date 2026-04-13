@@ -9,8 +9,6 @@ from pydantic import BaseModel
 from config import load_env
 
 from tasks import process_upload, process_scrape
-from startButton import scrape_webpage_schedule, parse_response_to_events, google_calendar
-from tasks import get_valid_creds
 from celery_app import celery
 
 
@@ -77,30 +75,8 @@ async def scrape_schedule(
     match = re.search(r'~([a-zA-Z]{3}\d{3})', url)
     file_name = match.group(1).upper() if match else "webpage"
 
-    # --- 로컬 테스트용 동기 처리 (배포 시 Celery 비동기로 전환 필요) ---
-    try:
-        ai_response = scrape_webpage_schedule(url=url, file_name=file_name, color=body.color)
-
-        if ai_response.startswith("Error:"):
-            raise HTTPException(status_code=400, detail=ai_response)
-
-        events_list = parse_response_to_events(ai_response)
-        if not events_list:
-            raise HTTPException(status_code=400, detail="일정을 찾지 못했습니다.")
-
-        creds = get_valid_creds(user_email)
-        if not creds:
-            raise HTTPException(status_code=401, detail="인증 정보를 찾을 수 없습니다. 다시 로그인해 주세요.")
-
-        google_calendar(events_list, creds)
-
-        return {"status": "success", "count": len(events_list)}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"❌ Error scraping {url}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+    task = process_scrape.delay(url, file_name, body.color, user_email)
+    return {"status": "processing", "task_id": task.id}
 
 
 @router.get("/upload/status/{task_id}")
