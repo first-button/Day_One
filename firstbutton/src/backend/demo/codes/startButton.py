@@ -4,6 +4,8 @@ import os
 import re
 from datetime import date, timedelta
 
+import requests
+from bs4 import BeautifulSoup
 import google.generativeai as genai
 import pymupdf
 from PIL import Image
@@ -84,6 +86,65 @@ COMMON_EVENT_MARKERS = (
     ("recess", "break"),
     ("break", "break"),
 )
+
+
+def scrape_webpage_schedule(url, file_name, color):
+    """URL에서 HTML 테이블을 추출하여 Gemini로 일정 분석"""
+    try:
+        resp = requests.get(url, timeout=15, headers={
+            "User-Agent": "Mozilla/5.0 (compatible; DayOne/1.0)"
+        })
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        return f"Error: failed to fetch URL - {e}"
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # 1. HTML <table> 태그를 Markdown으로 변환
+    markdown_tables = []
+    for idx, table in enumerate(soup.find_all("table"), start=1):
+        rows = []
+        for tr in table.find_all("tr"):
+            cells = [td.get_text(strip=True) for td in tr.find_all(["td", "th"])]
+            rows.append("| " + " | ".join(cells) + " |")
+        if len(rows) < 2:
+            continue
+        # 헤더 구분선 삽입
+        header_sep = "| " + " | ".join(["---"] * rows[0].count("|")) + " |"
+        markdown = rows[0] + "\n" + header_sep + "\n" + "\n".join(rows[1:])
+
+        if table_looks_like_schedule(markdown):
+            markdown_tables.append(f"[Table {idx}]\n{markdown}")
+
+    # 2. 테이블이 있으면 테이블 텍스트로 분석
+    if markdown_tables:
+        table_text = "\n\n".join(markdown_tables)
+        print(f"[SCRAPE] Found {len(markdown_tables)} schedule table(s) from {url}")
+        prompt = build_schedule_prompt(
+            intro="You are given schedule tables scraped from a syllabus webpage.",
+            file_name=file_name,
+            color=color,
+            source_name="table data",
+            content=table_text,
+        )
+        response = generate_schedule_content(prompt)
+        return response.text
+
+    # 3. 테이블이 없으면 페이지 전체 텍스트로 fallback
+    page_text = soup.get_text(separator="\n", strip=True)
+    if not page_text:
+        return "Error: no content found on the webpage."
+
+    print(f"[SCRAPE] No tables found. Using full page text from {url}")
+    prompt = build_schedule_prompt(
+        intro="You are given text scraped from a syllabus webpage.",
+        file_name=file_name,
+        color=color,
+        source_name="webpage text",
+        content=page_text[:10000],  # 텍스트가 너무 길면 잘라냄
+    )
+    response = generate_schedule_content(prompt)
+    return response.text
 
 
 def integrated_file_reader(file_path, file_type, file_name, color):

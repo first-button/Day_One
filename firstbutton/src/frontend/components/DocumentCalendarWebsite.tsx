@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from "react";
-import { Calendar, FileText, Image, Clock, CheckCircle, ArrowRight, Zap, HelpCircle, LogIn, X, Trash2 } from "lucide-react";
+import { Calendar, FileText, Image, CheckCircle, ArrowRight, Zap, HelpCircle, LogIn, X, Trash2, Link } from "lucide-react";
 import { Button } from "./ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { QuickGuide } from "./QuickGuide";
 import { AnimatePresence, motion } from "motion/react"; // 애니메이션 효과
-import { toast } from "sonner";
 import calendarImage from "../assets/calendar.jpg";
 import syllabusImage from "../assets/syllabus.jpg";
 import photoTakingImage from "../assets/photo-taking.jpg";
@@ -67,6 +66,21 @@ const translations = {
   }
 };
 
+// Google Calendar 색상 ID → 실제 색상
+const CALENDAR_COLORS: Record<string, { name: string; hex: string }> = {
+  "1": { name: "Lavender", hex: "#7986CB" },
+  "2": { name: "Sage", hex: "#33B679" },
+  "3": { name: "Grape", hex: "#8E24AA" },
+  "4": { name: "Flamingo", hex: "#E67C73" },
+  "5": { name: "Banana", hex: "#F6BF26" },
+  "6": { name: "Tangerine", hex: "#F4511E" },
+  "7": { name: "Peacock", hex: "#039BE5" },
+  "8": { name: "Graphite", hex: "#616161" },
+  "9": { name: "Blueberry", hex: "#3F51B5" },
+  "10": { name: "Basil", hex: "#0B8043" },
+  "11": { name: "Tomato", hex: "#D50000" },
+};
+
 // 파일 정보 타입 정의
 interface SelectedFile {
   file: File;
@@ -79,8 +93,11 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState("");
-  const [isUploading, setIsUploading] = useState(false);
   const [showQuickGuide, setShowQuickGuide] = useState(false);
+  const [showUrlModal, setShowUrlModal] = useState(false);
+  const [urlInput, setUrlInput] = useState("");
+  const [urlList, setUrlList] = useState<{ url: string; color: string }[]>([]);
+  const [isScrapingUrl, setIsScrapingUrl] = useState(false);
   const t = translations[language];
 
   // 브라우저 쿠키에 user_email이 있는지 확인 (HttpOnly가 아닐 경우)
@@ -216,51 +233,79 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
     }
   };
 
-  // [기존] 동기 업로드 — Celery 도입 전 코드
-  // const handleFinalUpload = async () => {
-  //   if (selectedFiles.length === 0) return;
-  //
-  //   try {
-  //     alert(`${selectedFiles.length}개의 파일을 처리합니다...`);
-  //
-  //     for (const item of selectedFiles) {
-  //       const formData = new FormData();
-  //       formData.append("uploaded_file", item.file);
-  //       formData.append("event_color", item.color);
-  //
-  //       const response = await fetch("/api/schedule/upload", {
-  //         method: "POST",
-  //         body: formData,
-  //         credentials: "include",
-  //       });
-  //
-  //       if (response.status === 401) {
-  //         alert("로그인이 필요합니다. 먼저 로그인해주세요!");
-  //         return;
-  //       }
-  //
-  //       if (!response.ok) {
-  //         throw new Error(`${item.file.name} 처리 실패`);
-  //       }
-  //     }
-  //
-  //     alert("모든 일정이 성공적으로 등록되었습니다!");
-  //     setIsModalOpen(false);
-  //     setSelectedFiles([]);
-  //
-  //   } catch (error) {
-  //     console.error(error);
-  //     alert("일부 파일 처리에 실패했습니다.");
-  //   }
-  // };
-
   const handleUploadClick = () => {
     if (!isLoggedIn) {
     alert("먼저 로그인을 해주세요!");
-    handleLogin(); // 로그인창으로 바로 보냄
+    handleLogin();
     return;
     }
     fileInputRef.current?.click();
+  };
+
+  const handleAddUrl = () => {
+    if (!urlInput.trim()) return;
+    setUrlList(prev => [...prev, { url: urlInput.trim(), color: "1" }]);
+    setUrlInput("");
+  };
+
+  const handleRemoveUrl = (index: number) => {
+    setUrlList(prev => {
+      const newList = prev.filter((_, i) => i !== index);
+      if (newList.length === 0) setShowUrlModal(false);
+      return newList;
+    });
+  };
+
+  const handleUrlColorChange = (index: number, newColor: string) => {
+    setUrlList(prev => prev.map((item, i) =>
+      i === index ? { ...item, color: newColor } : item
+    ));
+  };
+
+  const handleUrlSubmit = async () => {
+    if (urlList.length === 0) return;
+
+    setIsScrapingUrl(true);
+    try {
+      for (const item of urlList) {
+        const response = await fetch("/api/schedule/scrape", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ url: item.url, color: item.color }),
+        });
+
+        if (response.status === 401) {
+          alert("로그인이 필요합니다. 먼저 로그인해주세요!");
+          return;
+        }
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `${item.url} 처리 실패`);
+        }
+
+        const data = await response.json();
+        if (data.status === "error") {
+          throw new Error(data.message || `${item.url} 일정 추출 실패`);
+        }
+      }
+
+      alert(language === 'ko'
+        ? "모든 웹페이지에서 일정이 성공적으로 등록되었습니다!"
+        : "Schedules from all webpages have been registered successfully!");
+      setShowUrlModal(false);
+      setUrlList([]);
+      setUrlInput("");
+
+    } catch (error) {
+      console.error(error);
+      alert(language === 'ko'
+        ? "일부 웹페이지 처리에 실패했습니다. URL을 확인해주세요."
+        : "Failed to process some webpages. Please check the URLs.");
+    } finally {
+      setIsScrapingUrl(false);
+    }
   };
 
   return (
@@ -367,6 +412,23 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
                 >
                   {t.uploadButton}
                   <ArrowRight className="w-4 h-4 ml-2" />
+                </Button>
+
+                <Button
+                  size="lg"
+                  variant="outline"
+                  className="border-orange-500 text-orange-500 hover:bg-orange-50"
+                  onClick={() => {
+                    if (!isLoggedIn) {
+                      alert("먼저 로그인을 해주세요!");
+                      handleLogin();
+                      return;
+                    }
+                    setShowUrlModal(true);
+                  }}
+                >
+                  <Link className="w-4 h-4 mr-2" />
+                  {language === 'ko' ? '링크로 가져오기' : 'Import from Link'}
                 </Button>
               </div>
 
@@ -510,7 +572,7 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
-              className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden"
+              className="bg-white rounded-2xl shadow-2xl overflow-hidden" style={{ width: '700px' }}
             >
               {/* 모달 헤더 */}
               <div className="bg-orange-500 p-4 flex justify-between items-center text-white">
@@ -553,13 +615,14 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
                         onChange={(e) => handleColorChange(index, e.target.value)}
                         className="text-sm border rounded px-2 py-1 bg-white focus:ring-2 focus:ring-orange-500 outline-none cursor-pointer"
                         title="캘린더 색상"
+                        style={{ color: CALENDAR_COLORS[item.color]?.hex }}
                       >
-                         {Array.from({ length: 11 }, (_, i) => i + 1).map((num) => (
-                          <option key={num} value={num}>Color {num}</option>
+                        {Object.entries(CALENDAR_COLORS).map(([id, { name, hex }]) => (
+                          <option key={id} value={id} style={{ color: hex, fontWeight: 600 }}>● {name}</option>
                         ))}
                       </select>
-                      
-                      <button 
+
+                      <button
                         onClick={() => handleRemoveFile(index)}
                         className="text-slate-400 hover:text-red-500 transition p-1"
                         title="파일 삭제"
@@ -585,6 +648,103 @@ export function DocumentCalendarWebsite({ language, onLanguageChange, onNavigate
           </div>
         )}
       </AnimatePresence>
+
+      {/* URL Input Modal */}
+      {showUrlModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => { setShowUrlModal(false); setUrlInput(""); setUrlList([]); }}
+          />
+          <div className="relative bg-background rounded-lg border shadow-lg mx-4 p-6" style={{ width: '700px' }}>
+            <button
+              onClick={() => { setShowUrlModal(false); setUrlInput(""); setUrlList([]); }}
+              className="absolute top-4 right-4 opacity-70 hover:opacity-100 transition-opacity"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex flex-col gap-2 mb-6">
+              <h2 className="text-lg font-semibold flex items-center space-x-2">
+                <Link className="w-5 h-5 text-orange-500" />
+                <span>{language === 'ko' ? '웹페이지에서 일정 가져오기' : 'Import Schedule from Webpage'}</span>
+              </h2>
+              <p className="text-muted-foreground text-sm">
+                {language === 'ko'
+                  ? '교수님의 웹사이트나 실러버스 페이지 링크를 붙여넣으세요. 여러 개를 추가할 수 있습니다.'
+                  : 'Paste links to your professor\'s website or syllabus pages. You can add multiple.'}
+              </p>
+            </div>
+            <div className="flex flex-col gap-4">
+              {/* URL 입력 + 추가 버튼 */}
+              <div className="flex gap-2">
+                <input
+                  type="url"
+                  value={urlInput}
+                  onChange={(e) => setUrlInput(e.target.value)}
+                  placeholder="https://example.com/syllabus"
+                  className="flex-1 px-4 py-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddUrl(); } }}
+                  disabled={isScrapingUrl}
+                />
+                <Button
+                  variant="outline"
+                  className="border-orange-500 text-orange-500 hover:bg-orange-50 shrink-0"
+                  onClick={handleAddUrl}
+                  disabled={isScrapingUrl || !urlInput.trim()}
+                >
+                  {language === 'ko' ? '추가' : 'Add'}
+                </Button>
+              </div>
+
+              {/* URL 목록 */}
+              {urlList.length > 0 && (
+                <div className="max-h-[200px] overflow-y-auto space-y-2">
+                  {urlList.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <div className="flex items-center space-x-2 overflow-hidden">
+                        <Link className="w-4 h-4 text-orange-500 shrink-0" />
+                        <span className="text-sm truncate" title={item.url}>{item.url}</span>
+                      </div>
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <select
+                          value={item.color}
+                          onChange={(e) => handleUrlColorChange(index, e.target.value)}
+                          className="text-sm border rounded px-2 py-1 bg-white focus:ring-2 focus:ring-orange-500 outline-none cursor-pointer"
+                          title={language === 'ko' ? '캘린더 색상' : 'Calendar color'}
+                          style={{ color: CALENDAR_COLORS[item.color]?.hex }}
+                        >
+                          {Object.entries(CALENDAR_COLORS).map(([id, { name, hex }]) => (
+                            <option key={id} value={id} style={{ color: hex, fontWeight: 600 }}>● {name}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => handleRemoveUrl(index)}
+                          className="text-slate-400 hover:text-red-500 transition p-1"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 제출 버튼 */}
+              <Button
+                className="bg-orange-500 hover:bg-orange-600 w-full"
+                onClick={handleUrlSubmit}
+                disabled={isScrapingUrl || urlList.length === 0}
+              >
+                {isScrapingUrl ? (
+                  <>{language === 'ko' ? '처리 중...' : 'Processing...'}</>
+                ) : (
+                  <>{language === 'ko' ? `${urlList.length}개 일정 가져오기` : `Import ${urlList.length} Schedule(s)`}</>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Quick Guide Modal */}
       {showQuickGuide && (

@@ -13,3 +13,5 @@ prometheus-fastapi-instrumentator
 prometheus-client
 celery[redis]
 redis
+requests
+beautifulsoup4
